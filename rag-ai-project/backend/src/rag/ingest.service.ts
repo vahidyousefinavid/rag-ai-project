@@ -1,24 +1,19 @@
-import { Injectable, OnModuleInit } from "@nestjs/common";
-import { splitter } from "../utils/splitter";
-import { docs } from "../data/documents";
-import { VectorService } from "../vector/vector.service";
+import { Injectable, OnModuleInit, Logger } from '@nestjs/common';
+import { splitter } from '../utils/splitter';
+import { docs } from '../data/documents';
+import { VectorService } from '../vector/vector.service';
 
 @Injectable()
 export class IngestService implements OnModuleInit {
+  private readonly logger = new Logger(IngestService.name);
 
-  constructor(
-    private vectorService: VectorService
-  ) {}
+  constructor(private vector: VectorService) {}
 
   async onModuleInit() {
-
-    console.log("Starting document ingestion...");
-
+    this.logger.log('Starting document ingestion into Qdrant...');
+    await this.vector.recreateCollection();
     const splitDocs = await splitter.splitDocuments(docs);
-
-    await this.vectorService.createVectorStore(splitDocs);
-
-    console.log("✅ Ingestion completed");
-
+    await this.vector.upsertDocuments(splitDocs);
+    this.logger.log(`✅ Ingestion complete: ${splitDocs.length} chunks indexed`);
   }
 }

@@ -1,20 +1,12 @@
-import { Controller, Post, Body } from "@nestjs/common";
-import { RagService } from "./rag.service";
+import { Controller, Post, Body } from '@nestjs/common';
+import { RagService } from './rag.service';
 
-@Controller("chat")
+@Controller('chat')
 export class RagController {
+  constructor(private rag: RagService) {}
 
-    constructor(private rag: RagService) { }
-
-    @Post()
-    async chat(@Body("message") message: string) {
-
-        const answer = await this.rag.ask(message);
-
-        return {
-            answer: answer
-        };
-
-    }
-
+  @Post()
+  chat(@Body('message') message: string) {
+    return this.rag.ask(message);
+  }
 }

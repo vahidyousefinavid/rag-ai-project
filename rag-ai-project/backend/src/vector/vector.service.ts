@@ -1,45 +1,108 @@
-import { Injectable } from "@nestjs/common";
-import { Chroma } from "@langchain/community/vectorstores/chroma";
-import { OllamaEmbeddings } from "@langchain/ollama";
-import { Document } from "@langchain/core/documents";
+import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { QdrantClient } from '@qdrant/js-client-rest';
+import { OllamaEmbeddings } from '@langchain/ollama';
+import { Document } from '@langchain/core/documents';
+import { RedisService } from '../cache/redis.service';
+import { randomUUID } from 'crypto';
+
+const VECTOR_SIZE = 1024; // bge-m3 output dimension
 
 @Injectable()
 export class VectorService {
-    private store: Chroma | null = null;
+  private readonly logger = new Logger(VectorService.name);
+  private client: QdrantClient;
+  private embeddings: OllamaEmbeddings;
+  private collectionName: string;
 
-    private embeddings = new OllamaEmbeddings({
-        baseUrl: "http://127.0.0.1:7998",
-        model: "bge-m3",
+  constructor(config: ConfigService, private redis: RedisService) {
+    const qdrantUrl = config.get<string>('qdrant.url') ?? 'http://localhost:6333';
+    const collection = config.get<string>('qdrant.collection') ?? 'rag-production';
+    const ollamaUrl = config.get<string>('ollama.baseUrl') ?? 'http://127.0.0.1:7998';
+    const embedModel = config.get<string>('ollama.embedModel') ?? 'bge-m3';
+
+    this.logger.log(`Connecting to Qdrant: ${qdrantUrl}, collection: ${collection}`);
+
+    this.client = new QdrantClient({ url: qdrantUrl });
+    this.collectionName = collection;
+    this.embeddings = new OllamaEmbeddings({ baseUrl: ollamaUrl, model: embedModel });
+
+    this.logger.log(`VectorService initialized, client type: ${typeof this.client}`);
+  }
+
+  private async ensureCollection(): Promise<void> {
+    if (!this.client) {
+      throw new Error('QdrantClient is not initialized — check Qdrant URL in .env');
+    }
+    try {
+      await this.client.getCollection(this.collectionName);
+      this.logger.log(`Collection "${this.collectionName}" exists`);
+    } catch {
+      await this.client.createCollection(this.collectionName, {
+        vectors: { size: VECTOR_SIZE, distance: 'Cosine' },
+        optimizers_config: { indexing_threshold: 0 },
+      });
+      this.logger.log(`Created collection "${this.collectionName}"`);
+    }
+  }
+
+  async embed(text: string): Promise<number[]> {
+    const cached = await this.redis.getEmbedding(text);
+    if (cached) return cached;
+
+    const [vector] = await this.embeddings.embedDocuments([text]);
+    await this.redis.setEmbedding(text, vector);
+    return vector;
+  }
+
+  async upsertDocuments(docs: Document[]): Promise<void> {
+    const BATCH = 32;
+    let upserted = 0;
+
+    for (let i = 0; i < docs.length; i += BATCH) {
+      const batch = docs.slice(i, i + BATCH);
+      const vectors = await Promise.all(batch.map((d) => this.embed(d.pageContent)));
+
+      const points = batch.map((doc, idx) => ({
+        id: randomUUID(),
+        vector: vectors[idx],
+        payload: {
+          content: doc.pageContent,
+          metadata: doc.metadata ?? {},
+        },
+      }));
+
+      await this.client.upsert(this.collectionName, { wait: true, points });
+      upserted += batch.length;
+      this.logger.log(`Upserted ${upserted}/${docs.length} chunks`);
+    }
+  }
+
+  async search(query: string, limit = 5): Promise<{ content: string; score: number; metadata: any }[]> {
+    const vector = await this.embed(query);
+    const results = await this.client.search(this.collectionName, {
+      vector,
+      limit,
+      with_payload: true,
     });
 
-    async createVectorStore(splitDocs: Document[]): Promise<void> {
-        // اول collection قدیمی رو حذف کن
-        try {
-            const { ChromaClient } = await import("chromadb");
-            const client = new ChromaClient({ path: "http://localhost:8000" });
-            await client.deleteCollection({ name: "rag-demo" });
-            // console.log("🗑️ Old collection deleted");
-        } catch {
-            console.log("ℹ️ No existing collection to delete");
-        }
+    return results.map((r) => ({
+      content: (r.payload?.['content'] as string) ?? '',
+      score: r.score,
+      metadata: r.payload?.['metadata'] ?? {},
+    }));
+  }
 
-        console.log(`📥 Ingesting ${splitDocs.length} chunks...`);
-
-        this.store = await Chroma.fromDocuments(splitDocs, this.embeddings, {
-            collectionName: "rag-demo",
-            url: "http://localhost:8000",
-            collectionMetadata: { "hnsw:space": "cosine" },
-        });
-
-        const count = await this.store.collection?.count();
-        console.log(`✅ Chroma collection has ${count} documents`);
+  async recreateCollection(): Promise<void> {
+    if (!this.client) {
+      throw new Error('QdrantClient is not initialized — check Qdrant URL in .env');
     }
-
-    async getStore(): Promise<Chroma> {
-        // دیباگ
-        console.log("🔎 getStore called, store is:", this.store ? "ready" : "NULL");
-
-        if (this.store) return this.store;
-        throw new Error("VectorStore هنوز آماده نشده");
+    try {
+      await this.client.deleteCollection(this.collectionName);
+      this.logger.log(`Deleted old collection "${this.collectionName}"`);
+    } catch {
+      // collection didn't exist yet
     }
+    await this.ensureCollection();
+  }
 }

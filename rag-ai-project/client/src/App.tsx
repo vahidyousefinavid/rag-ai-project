@@ -1,17 +1,41 @@
-import ChatLayout from "./components/ChatLayout"
-import useChat from "./hooks/useChat"
-import "./index.css"
+import useChat from './hooks/useChat'
+import SessionSidebar from './components/SessionSidebar'
+import ChatLayout from './components/ChatLayout'
+import './index.css'
 
 export default function App() {
-  const { messages, sendMessage, loading, error } = useChat()
+  const {
+    sessions,
+    activeSession,
+    messages,
+    loading,
+    error,
+    sidebarOpen,
+    setSidebarOpen,
+    sendMessage,
+    createSession,
+    selectSession,
+    deleteSession,
+  } = useChat()
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4">
+    <div className="flex h-full w-full">
+      <SessionSidebar
+        sessions={sessions}
+        activeSession={activeSession}
+        onSelect={selectSession}
+        onNew={createSession}
+        onDelete={deleteSession}
+        open={sidebarOpen}
+      />
       <ChatLayout
+        session={activeSession}
         messages={messages}
-        onSend={sendMessage}
         loading={loading}
         error={error}
+        sidebarOpen={sidebarOpen}
+        onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
+        onSend={sendMessage}
       />
     </div>
   )

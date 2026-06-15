@@ -1,4 +1,4 @@
-import { Controller, Post, Get, HttpCode } from '@nestjs/common';
+import { Controller, Post, Get, HttpCode, Query } from '@nestjs/common';
 import { CrmIngestService } from './crm-ingest.service';
 import { Pool } from 'pg';
 import { ConfigService } from '@nestjs/config';
@@ -21,12 +21,19 @@ export class CrmController {
     });
   }
 
-  /** Trigger full re-ingestion of CRM data into Qdrant */
+  /**
+   * Trigger CRM ingestion into Qdrant.
+   * Automatically resumes from last checkpoint if a previous run was interrupted.
+   * Pass ?force=true to wipe collection and restart from scratch.
+   */
   @Post('ingest')
   @HttpCode(202)
-  async triggerIngest() {
-    const result = await this.ingest.ingestAll();
-    return { message: 'CRM data ingested successfully', ...result };
+  async triggerIngest(@Query('force') force?: string) {
+    const result = await this.ingest.ingestAll(force === 'true');
+    const msg = result.resumed != null
+      ? `Resumed from chunk ${result.resumed}`
+      : 'CRM data ingested successfully';
+    return { message: msg, ...result };
   }
 
   /** Quick stats about the CRM database */

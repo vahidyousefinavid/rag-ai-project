@@ -7,7 +7,9 @@ import { RedisService } from '../cache/redis.service';
 import { randomUUID } from 'crypto';
 
 const VECTOR_SIZE = 1024; // bge-m3 output dimension
-const BATCH = 32;
+const QDRANT_BATCH = 32;  // points per Qdrant upsert call
+const OLLAMA_BATCH = 4;   // texts per Ollama embed call (prevents ECONNRESET)
+const MAX_RETRIES = 3;
 
 @Injectable()
 export class VectorService {
@@ -53,19 +55,19 @@ export class VectorService {
     }
   }
 
-  /** Embed a single text with Redis cache */
+  /** Embed a single text with Redis cache + retry */
   async embed(text: string): Promise<number[]> {
     const cached = await this.redis.getEmbedding(text);
     if (cached) return cached;
 
-    const [vector] = await this.embeddings.embedDocuments([text]);
+    const [vector] = await this.callOllamaWithRetry([text]);
     await this.redis.setEmbedding(text, vector);
     return vector;
   }
 
   /**
-   * Embed a batch of texts in ONE Ollama request (10x faster than one-by-one).
-   * Cache-aware: only sends uncached texts to Ollama.
+   * Embed a batch of texts using small Ollama sub-batches (OLLAMA_BATCH=4)
+   * to prevent ECONNRESET on long requests. Cache-aware, with retry per sub-batch.
    */
   async embedBatch(texts: string[]): Promise<number[][]> {
     const results: number[][] = new Array(texts.length);
@@ -82,24 +84,44 @@ export class VectorService {
       }
     }
 
-    if (uncachedTexts.length > 0) {
-      // Single HTTP request for all uncached texts
-      const vectors = await this.embeddings.embedDocuments(uncachedTexts);
-      for (let j = 0; j < uncachedTexts.length; j++) {
-        results[uncachedIdx[j]] = vectors[j];
-        await this.redis.setEmbedding(uncachedTexts[j], vectors[j]);
+    // Send uncached texts to Ollama in small sub-batches with retry
+    for (let s = 0; s < uncachedTexts.length; s += OLLAMA_BATCH) {
+      const sub = uncachedTexts.slice(s, s + OLLAMA_BATCH);
+      const vectors = await this.callOllamaWithRetry(sub);
+      for (let j = 0; j < sub.length; j++) {
+        const globalIdx = uncachedIdx[s + j];
+        results[globalIdx] = vectors[j];
+        await this.redis.setEmbedding(sub[j], vectors[j]);
       }
     }
 
     return results;
   }
 
+  /** Call Ollama embedDocuments with exponential backoff retry on connection errors */
+  private async callOllamaWithRetry(texts: string[]): Promise<number[][]> {
+    let lastError: unknown;
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        return await this.embeddings.embedDocuments(texts);
+      } catch (err: any) {
+        lastError = err;
+        const isRetryable = err?.cause?.code === 'ECONNRESET' || err?.cause?.code === 'ECONNREFUSED' || err?.code === 'ECONNRESET';
+        if (!isRetryable || attempt === MAX_RETRIES) throw err;
+        const delay = attempt * 2000;
+        this.logger.warn(`Ollama ${err?.cause?.code ?? err?.code} — retry ${attempt}/${MAX_RETRIES} in ${delay}ms`);
+        await new Promise((r) => setTimeout(r, delay));
+      }
+    }
+    throw lastError;
+  }
+
   async upsertDocuments(docs: Document[]): Promise<void> {
     await this.ensureCollection();
     let upserted = 0;
 
-    for (let i = 0; i < docs.length; i += BATCH) {
-      const batch = docs.slice(i, i + BATCH);
+    for (let i = 0; i < docs.length; i += QDRANT_BATCH) {
+      const batch = docs.slice(i, i + QDRANT_BATCH);
       const texts = batch.map((d) => d.pageContent);
 
       // True batch: ONE request to Ollama per 32 texts
@@ -116,7 +138,9 @@ export class VectorService {
 
       await this.client.upsert(this.collectionName, { wait: true, points });
       upserted += batch.length;
-      this.logger.log(`Upserted ${upserted}/${docs.length} chunks`);
+      if (docs.length > QDRANT_BATCH) {
+        this.logger.log(`Upserted ${upserted}/${docs.length} chunks`);
+      }
     }
   }
 

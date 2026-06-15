@@ -9,6 +9,6 @@ import { RedisService } from '../cache/redis.service';
 @Module({
   controllers: [RagController],
   providers: [RagService, IngestService, VectorService, OllamaService, RedisService],
-  exports: [RagService, VectorService],
+  exports: [RagService, VectorService, RedisService],
 })
 export class RagModule {}

@@ -64,4 +64,25 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
       this.logger.warn(`Failed to cache RAG result: ${err.message}`);
     }
   }
+
+  async getCheckpoint(key: string): Promise<number> {
+    try {
+      const val = await this.client.get(`ckpt:${key}`);
+      return val ? parseInt(val, 10) : 0;
+    } catch {
+      return 0;
+    }
+  }
+
+  async setCheckpoint(key: string, offset: number): Promise<void> {
+    try {
+      await this.client.set(`ckpt:${key}`, String(offset));
+    } catch { /* ignore */ }
+  }
+
+  async clearCheckpoint(key: string): Promise<void> {
+    try {
+      await this.client.del(`ckpt:${key}`);
+    } catch { /* ignore */ }
+  }
 }

@@ -3,6 +3,9 @@ import { ConfigService } from '@nestjs/config';
 import { Pool } from 'pg';
 import { Document } from '@langchain/core/documents';
 import { VectorService } from '../vector/vector.service';
+import { RedisService } from '../cache/redis.service';
+
+const CHECKPOINT_KEY = 'crm_ingest';
 
 @Injectable()
 export class CrmIngestService {
@@ -12,6 +15,7 @@ export class CrmIngestService {
   constructor(
     private config: ConfigService,
     private vector: VectorService,
+    private redis: RedisService,
   ) {
     this.pool = new Pool({
       host: this.config.get<string>('postgres.host') ?? 'localhost',
@@ -23,9 +27,20 @@ export class CrmIngestService {
     });
   }
 
-  async ingestAll(): Promise<{ chunks: number; tables: Record<string, number> }> {
-    this.logger.log('Starting CRM data ingestion into Qdrant...');
-    await this.vector.recreateCollection();
+  async ingestAll(force = false): Promise<{ chunks: number; tables: Record<string, number>; resumed?: number }> {
+    const checkpoint = force ? 0 : await this.redis.getCheckpoint(CHECKPOINT_KEY);
+    const resume = checkpoint > 0;
+
+    if (force) {
+      this.logger.log('Force mode — recreating collection...');
+      await this.vector.recreateCollection();
+      await this.redis.clearCheckpoint(CHECKPOINT_KEY);
+    } else if (!resume) {
+      this.logger.log('Starting fresh CRM ingestion...');
+      await this.vector.recreateCollection();
+    } else {
+      this.logger.log(`Resuming CRM ingestion from chunk ${checkpoint}...`);
+    }
 
     const docs: Document[] = [];
     const tableStats: Record<string, number> = {};
@@ -66,11 +81,25 @@ export class CrmIngestService {
     docs.push(...campaignDocs);
     tableStats['campaigns'] = campaignDocs.length;
 
-    this.logger.log(`Total documents built: ${docs.length}. Starting upsert...`);
-    await this.vector.upsertDocuments(docs);
+    this.logger.log(`Total documents built: ${docs.length}. Starting upsert from ${checkpoint}...`);
 
+    // Save checkpoint after each batch via a wrapper
+    await this.upsertWithCheckpoint(docs, checkpoint);
+
+    await this.redis.clearCheckpoint(CHECKPOINT_KEY);
     this.logger.log(`✅ CRM ingestion complete: ${docs.length} documents indexed`);
-    return { chunks: docs.length, tables: tableStats };
+    return { chunks: docs.length, tables: tableStats, resumed: resume ? checkpoint : undefined };
+  }
+
+  private async upsertWithCheckpoint(docs: Document[], startFrom: number): Promise<void> {
+    const BATCH = 32;
+    for (let i = startFrom; i < docs.length; i += BATCH) {
+      const batch = docs.slice(i, i + BATCH);
+      await this.vector.upsertDocuments(batch); // embeds + upserts this batch
+      const progress = i + batch.length;
+      await this.redis.setCheckpoint(CHECKPOINT_KEY, progress);
+      this.logger.log(`CRM progress: ${progress}/${docs.length}`);
+    }
   }
 
   // ─── customers ─────────────────────────────────────────────────────────────

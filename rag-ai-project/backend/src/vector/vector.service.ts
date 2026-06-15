@@ -7,6 +7,7 @@ import { RedisService } from '../cache/redis.service';
 import { randomUUID } from 'crypto';
 
 const VECTOR_SIZE = 1024; // bge-m3 output dimension
+const BATCH = 32;
 
 @Injectable()
 export class VectorService {
@@ -31,12 +32,8 @@ export class VectorService {
   }
 
   private async ensureCollection(): Promise<void> {
-    if (!this.client) {
-      throw new Error('QdrantClient is not initialized — check Qdrant URL in .env');
-    }
     try {
       await this.client.getCollection(this.collectionName);
-      this.logger.log(`Collection "${this.collectionName}" exists`);
     } catch {
       await this.client.createCollection(this.collectionName, {
         vectors: { size: VECTOR_SIZE, distance: 'Cosine' },
@@ -46,6 +43,17 @@ export class VectorService {
     }
   }
 
+  /** Returns current number of indexed points (0 if collection doesn't exist) */
+  async countPoints(): Promise<number> {
+    try {
+      const info = await this.client.getCollection(this.collectionName);
+      return info.points_count ?? 0;
+    } catch {
+      return 0;
+    }
+  }
+
+  /** Embed a single text with Redis cache */
   async embed(text: string): Promise<number[]> {
     const cached = await this.redis.getEmbedding(text);
     if (cached) return cached;
@@ -55,13 +63,47 @@ export class VectorService {
     return vector;
   }
 
+  /**
+   * Embed a batch of texts in ONE Ollama request (10x faster than one-by-one).
+   * Cache-aware: only sends uncached texts to Ollama.
+   */
+  async embedBatch(texts: string[]): Promise<number[][]> {
+    const results: number[][] = new Array(texts.length);
+    const uncachedIdx: number[] = [];
+    const uncachedTexts: string[] = [];
+
+    for (let i = 0; i < texts.length; i++) {
+      const cached = await this.redis.getEmbedding(texts[i]);
+      if (cached) {
+        results[i] = cached;
+      } else {
+        uncachedIdx.push(i);
+        uncachedTexts.push(texts[i]);
+      }
+    }
+
+    if (uncachedTexts.length > 0) {
+      // Single HTTP request for all uncached texts
+      const vectors = await this.embeddings.embedDocuments(uncachedTexts);
+      for (let j = 0; j < uncachedTexts.length; j++) {
+        results[uncachedIdx[j]] = vectors[j];
+        await this.redis.setEmbedding(uncachedTexts[j], vectors[j]);
+      }
+    }
+
+    return results;
+  }
+
   async upsertDocuments(docs: Document[]): Promise<void> {
-    const BATCH = 32;
+    await this.ensureCollection();
     let upserted = 0;
 
     for (let i = 0; i < docs.length; i += BATCH) {
       const batch = docs.slice(i, i + BATCH);
-      const vectors = await Promise.all(batch.map((d) => this.embed(d.pageContent)));
+      const texts = batch.map((d) => d.pageContent);
+
+      // True batch: ONE request to Ollama per 32 texts
+      const vectors = await this.embedBatch(texts);
 
       const points = batch.map((doc, idx) => ({
         id: randomUUID(),
@@ -78,12 +120,17 @@ export class VectorService {
     }
   }
 
-  async search(query: string, limit = 5): Promise<{ content: string; score: number; metadata: any }[]> {
+  async search(
+    query: string,
+    limit = 8,
+    scoreThreshold = 0.5,
+  ): Promise<{ content: string; score: number; metadata: any }[]> {
     const vector = await this.embed(query);
     const results = await this.client.search(this.collectionName, {
       vector,
       limit,
       with_payload: true,
+      score_threshold: scoreThreshold,
     });
 
     return results.map((r) => ({
@@ -94,9 +141,6 @@ export class VectorService {
   }
 
   async recreateCollection(): Promise<void> {
-    if (!this.client) {
-      throw new Error('QdrantClient is not initialized — check Qdrant URL in .env');
-    }
     try {
       await this.client.deleteCollection(this.collectionName);
       this.logger.log(`Deleted old collection "${this.collectionName}"`);

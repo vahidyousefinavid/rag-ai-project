@@ -10,8 +10,13 @@ export class IngestService implements OnModuleInit {
   constructor(private vector: VectorService) {}
 
   async onModuleInit() {
-    this.logger.log('Starting document ingestion into Qdrant...');
-    await this.vector.recreateCollection();
+    const count = await this.vector.countPoints();
+    if (count > 0) {
+      this.logger.log(`Qdrant already has ${count} points — skipping static ingestion`);
+      return;
+    }
+
+    this.logger.log('Collection empty — ingesting static documents...');
     const splitDocs = await splitter.splitDocuments(docs);
     await this.vector.upsertDocuments(splitDocs);
     this.logger.log(`✅ Ingestion complete: ${splitDocs.length} chunks indexed`);

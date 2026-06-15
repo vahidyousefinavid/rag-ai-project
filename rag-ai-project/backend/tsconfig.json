@@ -20,5 +20,6 @@
     "noFallthroughCasesInSwitch": false,
     "ignoreDeprecations": "6.0",
     "strictPropertyInitialization": false
-  }
+  },
+  "exclude": ["scripts", "node_modules", "dist"]
 }

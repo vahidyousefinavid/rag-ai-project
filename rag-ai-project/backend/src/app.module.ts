@@ -4,6 +4,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import configuration from './config/configuration';
 import { RagModule } from './rag/rag.module';
 import { ChatModule } from './chat/chat.module';
+import { CrmModule } from './crm/crm.module';
 import { User } from './database/entities/user.entity';
 import { ChatSession } from './database/entities/chat-session.entity';
 import { Message } from './database/entities/message.entity';
@@ -31,6 +32,7 @@ import { Message } from './database/entities/message.entity';
     }),
     RagModule,
     ChatModule,
+    CrmModule,
   ],
 })
 export class AppModule {}

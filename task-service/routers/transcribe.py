@@ -50,32 +50,63 @@ async def extract_tasks(body: dict):
         raise HTTPException(status_code=400, detail="Empty text")
 
     prompt = (
-        "You are a smart task-extraction assistant. The input may be in Persian (Farsi) or English.\n"
-        "Read the text below and extract every actionable task mentioned.\n"
-        "Return ONLY a valid JSON array — no explanation, no markdown fences.\n"
-        "Each item must have:\n"
-        '  "title": short task title in the same language as the input (max 70 chars)\n'
-        '  "description": optional detail or null\n'
-        '  "priority": "low" | "medium" | "high"\n\n'
-        f"Text:\n{text}\n\nJSON:"
+        "You are a task extraction assistant. Extract actionable tasks from the user's spoken text.\n"
+        "The text may be in Persian (Farsi) or English. Keep the task title in the SAME language as the input.\n\n"
+        "RULES:\n"
+        "- title: a FULL descriptive sentence explaining what needs to be done (5-15 words). "
+        "Do NOT use single words. Capture WHO does WHAT and WHERE/FOR WHAT system.\n"
+        "- description: additional context, acceptance criteria, or null if nothing extra was said\n"
+        '- priority: "high" if urgent/important, "medium" default, "low" if minor\n\n'
+        "EXAMPLES:\n"
+        'Input: "باید یه صفحه لاگین برای سامانه ضوابط درست کنیم"\n'
+        'Output: [{"title": "طراحی و پیاده‌سازی صفحه لاگین در سامانه ضوابط", "description": null, "priority": "medium"}]\n\n'
+        'Input: "یه باگ توی فرم ثبت نام هست که ایمیل رو validate نمیکنه، باید فوری درستش کنیم"\n'
+        'Output: [{"title": "رفع باگ validate نشدن ایمیل در فرم ثبت‌نام", "description": "ایمیل وارد شده در فرم ثبت‌نام اعتبارسنجی نمی‌شود", "priority": "high"}]\n\n'
+        'Input: "Create a login page for the regulations system"\n'
+        'Output: [{"title": "Create login page for the regulations system", "description": null, "priority": "medium"}]\n\n'
+        "Return ONLY a valid JSON array, no explanation, no markdown fences.\n\n"
+        f"Input text:\n{text}\n\nJSON:"
     )
 
     try:
         async with httpx.AsyncClient(timeout=90) as client:
             resp = await client.post(
                 f"{OLLAMA_URL}/api/generate",
-                json={"model": LLM_MODEL, "prompt": prompt, "stream": False},
+                json={
+                    "model": LLM_MODEL,
+                    "prompt": prompt,
+                    "stream": False,
+                    "options": {"temperature": 0.1, "top_p": 0.9},
+                },
             )
             resp.raise_for_status()
             raw: str = resp.json().get("response", "[]")
     except httpx.HTTPError as e:
         raise HTTPException(status_code=502, detail=f"Ollama error: {e}")
 
-    # Extract JSON array from the response (model sometimes adds prose)
+    # Extract JSON array from the response (model sometimes wraps in prose/fences)
+    raw = raw.strip()
+    if "```" in raw:
+        raw = raw.split("```")[1] if "```json" not in raw else raw.split("```json")[1]
+        raw = raw.split("```")[0]
+
     start, end = raw.find("["), raw.rfind("]") + 1
     try:
         extracted = json.loads(raw[start:end]) if start != -1 else []
+        # Validate and clean each task
+        cleaned = []
+        for item in extracted:
+            title = str(item.get("title", "")).strip()
+            if not title:
+                continue
+            cleaned.append({
+                "title": title,
+                "description": item.get("description") or None,
+                "priority": item.get("priority", "medium") if item.get("priority") in ("low", "medium", "high") else "medium",
+            })
+        extracted = cleaned
     except json.JSONDecodeError:
-        extracted = []
+        # Fallback: use the full text as a single task title
+        extracted = [{"title": text[:150], "description": None, "priority": "medium"}]
 
     return {"tasks": extracted, "source_text": text}

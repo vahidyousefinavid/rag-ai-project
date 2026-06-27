@@ -1,0 +1,55 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Vazirmatn:wght@300;400;500;600;700&display=swap');
+
+* { box-sizing: border-box; }
+
+body {
+  background: #EEF2F7;
+  color: #1A2A3A;
+  font-family: 'Vazirmatn', system-ui, sans-serif;
+  direction: rtl;
+}
+
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #C8D5E5; border-radius: 2px; }
+
+.glass {
+  background: #ffffff;
+  border: none;
+  box-shadow: 0 4px 24px rgba(26, 42, 58, 0.08), 0 1px 4px rgba(26, 42, 58, 0.04);
+  border-radius: 20px;
+}
+
+/* Header stays flat — no rounded corners */
+header.glass {
+  border-radius: 0;
+  box-shadow: 0 1px 0 #E5ECF4;
+}
+
+/* Spinner keyframes for inline animation */
+@keyframes spin { to { transform: rotate(360deg); } }
+
+@layer utilities {
+  .text-muted { color: #8A9DBB; }
+}
+
+/* ── Light theme: make text-white readable on light backgrounds ── */
+/* Override white text to dark navy throughout */
+.text-white {
+  color: #1A2A3A !important;
+}
+
+/* Restore genuine white text on accent-colored elements (buttons, active tabs) */
+.bg-accent.text-white {
+  color: #ffffff !important;
+}
+
+/* Restore white text inside elements that sit on colored backgrounds */
+.bg-accent .text-white,
+.bg-green-400 .text-white {
+  color: #ffffff !important;
+}

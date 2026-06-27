@@ -6,8 +6,9 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      "/chat": "http://localhost:3000",
-      "/sessions": "http://localhost:3000"
+      "/chat": "http://127.0.0.1:3001",
+      "/sessions": "http://127.0.0.1:3001",
+      "/api": "http://127.0.0.1:8001"
     }
   },
   css: {

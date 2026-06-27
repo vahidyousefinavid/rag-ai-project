@@ -1,0 +1,66 @@
+# ── Dependencies ──────────────────────────────────────────────
+node_modules/
+.pnp
+.pnp.js
+
+# ── Environment / Secrets ─────────────────────────────────────
+.env
+.env.local
+.env.*.local
+.env.production
+
+# ── Build outputs ─────────────────────────────────────────────
+dist/
+build/
+out/
+.next/
+.nuxt/
+*.tsbuildinfo
+tsconfig.tsbuildinfo
+
+# ── Logs ──────────────────────────────────────────────────────
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# ── Python ────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+.Python
+venv/
+.venv/
+env/
+.env/
+pip-log.txt
+*.egg-info/
+.eggs/
+*.sqlite3
+*.db
+
+# ── OS ────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# ── IDE ───────────────────────────────────────────────────────
+.idea/
+.vscode/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+
+# ── Testing / Coverage ────────────────────────────────────────
+coverage/
+*.lcov
+.nyc_output/
+
+# ── Misc ──────────────────────────────────────────────────────
+*.tgz
+.cache/
+.parcel-cache/

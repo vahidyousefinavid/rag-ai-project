@@ -1,4 +1,7 @@
 import type { Session } from '../hooks/useChat'
+import { useLanguage } from '../i18n/LanguageContext'
+import type { Locale } from '../i18n'
+import LanguageSwitcher from './LanguageSwitcher'
 
 interface Props {
   sessions: Session[]
@@ -9,76 +12,90 @@ interface Props {
   open: boolean
 }
 
-function formatDate(iso: string) {
+function formatDate(iso: string, locale: Locale, yesterday: string) {
   const d = new Date(iso)
   const now = new Date()
-  const diffMs = now.getTime() - d.getTime()
-  const diffDays = Math.floor(diffMs / 86400000)
-  if (diffDays === 0) return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-  if (diffDays === 1) return 'Yesterday'
-  if (diffDays < 7) return d.toLocaleDateString([], { weekday: 'short' })
-  return d.toLocaleDateString([], { month: 'short', day: 'numeric' })
+  const diffDays = Math.floor((now.getTime() - d.getTime()) / 86400000)
+  if (diffDays === 0) return d.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })
+  if (diffDays === 1) return yesterday
+  if (diffDays < 7) return d.toLocaleDateString(locale, { weekday: 'short' })
+  return d.toLocaleDateString(locale, { month: 'short', day: 'numeric' })
 }
 
 export default function SessionSidebar({ sessions, activeSession, onSelect, onNew, onDelete, open }: Props) {
+  const { t, locale } = useLanguage()
   if (!open) return null
 
   return (
     <aside
-      style={{ background: 'var(--surface)', borderRight: '1px solid var(--border)' }}
+      style={{ background: 'var(--surface)', borderInlineEnd: '1px solid var(--border)' }}
       className="w-56 flex-shrink-0 flex flex-col h-full"
     >
       {/* Header */}
       <div
         style={{ borderBottom: '1px solid var(--border)' }}
-        className="px-3 py-3 flex items-center justify-between"
+        className="px-3 py-3 flex items-center justify-between flex-shrink-0"
       >
-        <span style={{ color: 'var(--text)' }} className="font-medium text-sm">RAG Chat</span>
+        <span style={{ color: 'var(--text)' }} className="font-semibold text-sm tracking-tight truncate">
+          {t.appName}
+        </span>
         <button
           onClick={onNew}
-          title="New chat"
-          style={{ color: 'var(--text-muted)' }}
-          className="w-7 h-7 flex items-center justify-center rounded hover:bg-white/10 transition-colors text-lg leading-none"
+          title={t.newChat}
+          style={{ color: 'var(--text-muted)', border: '1px solid var(--border)' }}
+          className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-white/10 hover:text-white transition-colors text-base leading-none flex-shrink-0"
         >
           +
         </button>
       </div>
 
       {/* Session list */}
-      <div className="flex-1 overflow-y-auto py-1">
+      <div className="flex-1 overflow-y-auto py-1.5 px-1.5">
         {sessions.length === 0 && (
-          <p style={{ color: 'var(--text-muted)' }} className="px-3 py-4 text-xs text-center">
-            No chats yet
+          <p style={{ color: 'var(--text-muted)' }} className="px-2 py-6 text-xs text-center">
+            {t.noChatsYet}
           </p>
         )}
-        {sessions.map((s) => (
-          <div
-            key={s.id}
-            onClick={() => onSelect(s)}
-            style={{
-              background: activeSession?.id === s.id ? 'var(--surface-2)' : 'transparent',
-              color: 'var(--text)',
-            }}
-            className="group flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-white/5 transition-colors"
-          >
-            <div className="flex-1 min-w-0">
-              <p className="truncate text-sm leading-snug">
-                {s.title || 'New Chat'}
-              </p>
-              <p style={{ color: 'var(--text-muted)' }} className="text-xs mt-0.5">
-                {formatDate(s.createdAt)}
-              </p>
-            </div>
-            <button
-              onClick={(e) => { e.stopPropagation(); onDelete(s.id) }}
-              style={{ color: 'var(--text-muted)' }}
-              className="opacity-0 group-hover:opacity-100 w-5 h-5 flex items-center justify-center rounded hover:text-red-400 transition-all flex-shrink-0 text-xs"
-              title="Delete"
+        {sessions.map((s) => {
+          const isActive = activeSession?.id === s.id
+          return (
+            <div
+              key={s.id}
+              onClick={() => onSelect(s)}
+              style={{
+                background: isActive ? 'var(--surface-2)' : 'transparent',
+                color: isActive ? 'var(--text)' : 'var(--text-muted)',
+                borderInlineStart: isActive ? '2px solid var(--accent)' : '2px solid transparent',
+              }}
+              className="group flex items-center gap-2 px-2.5 py-2 rounded-lg cursor-pointer hover:bg-white/5 hover:text-white transition-all mb-0.5"
             >
-              ✕
-            </button>
-          </div>
-        ))}
+              <div className="flex-1 min-w-0">
+                <p className="truncate text-xs font-medium leading-snug" style={{ color: 'inherit' }}>
+                  {s.title && s.title !== 'New Chat' ? s.title : t.newChatTitle}
+                </p>
+                <p style={{ color: 'var(--text-muted)' }} className="text-xs mt-0.5 opacity-70">
+                  {formatDate(s.createdAt, locale, t.yesterday)}
+                </p>
+              </div>
+              <button
+                onClick={(e) => { e.stopPropagation(); onDelete(s.id) }}
+                style={{ color: 'var(--text-muted)' }}
+                className="opacity-0 group-hover:opacity-100 w-5 h-5 flex items-center justify-center rounded hover:text-red-400 transition-all flex-shrink-0 text-xs"
+                title={t.delete}
+              >
+                ✕
+              </button>
+            </div>
+          )
+        })}
+      </div>
+
+      {/* Footer: language switcher */}
+      <div
+        style={{ borderTop: '1px solid var(--border)' }}
+        className="px-3 py-2.5 flex-shrink-0 flex items-center justify-center"
+      >
+        <LanguageSwitcher />
       </div>
     </aside>
   )

@@ -1,7 +1,8 @@
 import { useState, useRef } from 'react'
 import { useLanguage } from '../i18n/LanguageContext'
 import LanguageSwitcher from '../components/LanguageSwitcher'
-import useVault, { VaultEntry, VaultFormData } from '../hooks/useVault'
+import useVault from '../hooks/useVault'
+import type { VaultEntry, VaultFormData } from '../hooks/useVault'
 
 const CATEGORIES = ['email', 'social', 'work', 'finance', 'shopping', 'other'] as const
 

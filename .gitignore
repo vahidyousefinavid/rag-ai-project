@@ -64,3 +64,6 @@ coverage/
 *.tgz
 .cache/
 .parcel-cache/
+
+# ── Vault encryption key (never commit!) ──────────────────────
+.vault.key

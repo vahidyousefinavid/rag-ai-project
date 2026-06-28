@@ -10,6 +10,13 @@ router = APIRouter()
 
 _model: WhisperModel | None = None
 
+# ── کلیدواژه‌های فرمان صوتی ─────────────────────────────────────────────────
+_INTENTS: dict[str, list[str]] = {
+    "confirm": ["آره", "بله", "باشه", "اضافه", "بزن", "ثبت", "ok", "yes", "درسته", "آوکی", "قبوله", "آوکی", "بکن"],
+    "discard": ["نه", "بیخیال", "لغو", "نمیخوام", "cancel", "no", "نخیر", "نکن", "حذف"],
+    "read":    ["بخون", "بگو", "بخوانشان", "بخوانشون", "بلند", "بلندخوان", "برام بگو", "چیه", "چیا"],
+}
+
 OLLAMA_URL = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:7998")
 LLM_MODEL  = os.getenv("OLLAMA_LLM_MODEL", "llama3.1")
 WHISPER_MODEL_SIZE = os.getenv("WHISPER_MODEL", "small")  # tiny | base | small | medium
@@ -110,3 +117,27 @@ async def extract_tasks(body: dict):
         extracted = [{"title": text[:150], "description": None, "priority": "medium"}]
 
     return {"tasks": extracted, "source_text": text}
+
+
+@router.post("/voice-intent")
+async def voice_intent(file: UploadFile = File(...)):
+    """Transcribe a short voice command and return parsed intent (confirm/discard/read/unknown)."""
+    ext = os.path.splitext(file.filename or "")[1] or ".webm"
+    with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp:
+        tmp.write(await file.read())
+        tmp_path = tmp.name
+
+    try:
+        model = _get_model()
+        segments, _ = model.transcribe(tmp_path, beam_size=3, language=WHISPER_LANGUAGE or None)
+        text = " ".join(seg.text.strip() for seg in segments).strip()
+    finally:
+        os.unlink(tmp_path)
+
+    intent = "unknown"
+    for name, keywords in _INTENTS.items():
+        if any(k in text for k in keywords):
+            intent = name
+            break
+
+    return {"text": text, "intent": intent}

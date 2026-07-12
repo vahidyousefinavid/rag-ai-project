@@ -1,31 +1,75 @@
 'use client';
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, type ComponentType } from 'react';
 import { useRouter, useParams, useSearchParams } from 'next/navigation';
-import Link from 'next/link';
 import Navbar from '@/components/Navbar';
+import BottomNav from '@/components/BottomNav';
 import {
   api, Vehicle, ServiceRecord, FuelLog, FuelStats, VehicleDoc, Reminder,
-  SERVICE_TYPES, DOC_TYPES, FUEL_TYPES, COLORS_HEX, daysUntil, expiryStatus,
+  SERVICE_TYPES, DOC_TYPES, FUEL_TYPES, COLORS_HEX, daysUntil, expiryStatus, toJalali,
 } from '@/lib/api';
+import PersianDatePicker from '@/components/PersianDatePicker';
+import {
+  C, STATUS_THEME,
+  Card, SectionCard, Button, IconButton, FormField, Input,
+  IconBadge, StatGrid, StatusRow, EmptyState, Spinner, Sheet,
+} from '@/components/ui';
+import {
+  ChevronRightIcon, ChevronDownIcon, ChevronUpIcon, PlusIcon, XIcon, TrashIcon,
+  CarIcon, ShieldIcon, SearchIcon, FileTextIcon, WrenchIcon, FuelIcon, BellIcon,
+  SparklesIcon, WalletIcon, CalendarIcon, RoadIcon, PinIcon, DropletIcon, CircleIcon,
+  AlertTriangleIcon, SettingsIcon, LinkIcon, BatteryIcon, SnowflakeIcon, PaintbrushIcon,
+  GaugeIcon, FilterIcon, DiscIcon, PaperclipIcon, CheckIcon, IranFlag, CopyIcon, UserPlusIcon,
+} from '@/components/icons';
+import type { VehicleAccessEntry } from '@/lib/api';
 
 type Tab = 'overview' | 'records' | 'fuel' | 'documents' | 'reminders' | 'ai';
+type IconComp = ComponentType<{ size?: number }>;
 
-const TABS: { id: Tab; label: string; icon: string }[] = [
-  { id: 'overview',   label: 'خلاصه',         icon: '📊' },
-  { id: 'records',    label: 'سرویس‌ها',       icon: '🔧' },
-  { id: 'fuel',       label: 'سوخت',          icon: '⛽' },
-  { id: 'documents',  label: 'مدارک',          icon: '📄' },
-  { id: 'reminders',  label: 'یادآورها',       icon: '🔔' },
-  { id: 'ai',         label: 'دستیار AI',      icon: '🤖' },
+const TABS: { id: Tab; label: string; icon: IconComp }[] = [
+  { id: 'overview',   label: 'خلاصه',    icon: CircleIcon },
+  { id: 'records',    label: 'سرویس‌ها', icon: WrenchIcon },
+  { id: 'fuel',       label: 'سوخت',     icon: FuelIcon },
+  { id: 'documents',  label: 'مدارک',    icon: FileTextIcon },
+  { id: 'reminders',  label: 'یادآورها', icon: BellIcon },
+  { id: 'ai',         label: 'دستیار',   icon: SparklesIcon },
 ];
 
+const SERVICE_META: Record<string, { color: string; icon: IconComp }> = {
+  'تعویض روغن موتور': { color: '#FBBF24', icon: DropletIcon },
+  'تعویض لاستیک':     { color: '#60A5FA', icon: CircleIcon },
+  'تعمیر ترمز':       { color: '#F87171', icon: DiscIcon },
+  'تعویض فیلتر هوا':  { color: '#34D399', icon: FilterIcon },
+  'تعویض شمع':        { color: '#A78BFA', icon: ZapIconLocal },
+  'سرویس گیربکس':     { color: '#818CF8', icon: SettingsIcon },
+  'تعویض تایمینگ':    { color: '#F472B6', icon: LinkIcon },
+  'تعویض باتری':      { color: '#FB923C', icon: BatteryIcon },
+  'تنظیم موتور':      { color: '#2DD4BF', icon: WrenchIcon },
+  'سرویس کولر':       { color: '#22D3EE', icon: SnowflakeIcon },
+  'صافکاری و رنگ':    { color: '#C084FC', icon: PaintbrushIcon },
+  'سرویس جلوبندی':    { color: '#A3E635', icon: GaugeIcon },
+  'سایر':             { color: '#94A3B8', icon: FileTextIcon },
+};
+
+function ZapIconLocal(p: { size?: number }) {
+  return (
+    <svg width={p.size ?? 20} height={p.size ?? 20} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M13 2 4 14h6l-1 8 9-12h-6l1-8Z" />
+    </svg>
+  );
+}
+
+function svcMeta(type: string) {
+  return SERVICE_META[type] ?? { color: C.green, icon: WrenchIcon };
+}
+
+/* ─── Page ──────────────────────────────────────────────────────── */
 export default function VehiclePage() {
   const router       = useRouter();
   const { id }       = useParams<{ id: string }>();
   const searchParams = useSearchParams();
   const [vehicle, setVehicle] = useState<Vehicle | null>(null);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab]         = useState<Tab>((searchParams.get('tab') as Tab) || 'overview');
+  const [tab, setTab] = useState<Tab>((searchParams.get('tab') as Tab) || 'overview');
 
   useEffect(() => {
     if (!localStorage.getItem('vtoken')) { router.replace('/'); return; }
@@ -35,297 +79,771 @@ export default function VehiclePage() {
   function refresh() { api.vehicles.get(id).then(setVehicle); }
 
   if (loading) return (
-    <div className="min-h-screen flex items-center justify-center">
-      <div className="w-8 h-8 rounded-full border-2 border-border border-t-accent animate-spin" />
+    <div style={{
+      minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
+      flexDirection: 'column', gap: 16,
+    }}>
+      <div style={{
+        width: 48, height: 48, borderRadius: '50%',
+        border: `3px solid ${C.green}26`,
+        borderTopColor: C.green,
+        animation: 'spin 0.75s linear infinite',
+      }} />
+      <span style={{ color: C.muted, fontSize: 13, fontWeight: 500 }}>در حال بارگذاری...</span>
     </div>
   );
   if (!vehicle) return null;
 
-  const dotColor    = COLORS_HEX[vehicle.color || ''] || '#7c3aed';
-  const insDays     = daysUntil(vehicle.insuranceExpiry);
-  const tecDays     = daysUntil(vehicle.technicalExpiry);
-  const regDays     = daysUntil(vehicle.registrationExpiry);
-  const alertCount  = [insDays, tecDays, regDays].filter(d => expiryStatus(d) !== 'ok').length;
+  const dotColor   = COLORS_HEX[vehicle.color || ''] || C.green;
+  const insDays    = daysUntil(vehicle.insuranceExpiry);
+  const tecDays    = daysUntil(vehicle.technicalExpiry);
+  const regDays    = daysUntil(vehicle.registrationExpiry);
+  const alertCount = [insDays, tecDays, regDays].filter(d => expiryStatus(d) !== 'ok').length;
+
+  const lastRec   = vehicle.serviceRecords?.[0];
+  const nextSvcKm = lastRec?.nextServiceMileage;
+  const kmDone    = nextSvcKm && lastRec?.mileage ? vehicle.currentMileage - lastRec.mileage : null;
+  const kmRange   = nextSvcKm && lastRec?.mileage ? nextSvcKm - lastRec.mileage : null;
+  const healthPct = kmDone !== null && kmRange !== null && kmRange > 0
+    ? Math.max(0, Math.min(100, 100 - (kmDone / kmRange) * 100))
+    : 80;
+  const healthColor = healthPct > 60 ? C.green : healthPct > 30 ? '#F59E0B' : '#EF4444';
+  const ringCirc    = 2 * Math.PI * 22;
+
+  const vehicleStats = [
+    { label: 'کارکرد', value: vehicle.currentMileage.toLocaleString(), sub: 'km' },
+    { label: 'سرویس',  value: String(vehicle.serviceRecords?.length || 0), sub: 'مورد' },
+    ...(vehicle.engineCapacity ? [{ label: 'موتور',  value: vehicle.engineCapacity, sub: '' }] : []),
+    ...(vehicle.transmission   ? [{ label: 'گیربکس', value: vehicle.transmission,   sub: '' }] : []),
+  ];
 
   return (
-    <div style={{ minHeight: '100vh', background: '#EEF2F7' }}>
+    <div style={{ minHeight: '100vh' }}>
       <Navbar />
-      <main style={{ maxWidth: 560, margin: '0 auto', padding: '0 20px 40px' }}>
+      <main style={{ maxWidth: 560, margin: '0 auto', padding: '0 14px calc(88px + env(safe-area-inset-bottom))' }}>
 
-        {/* بازگشت */}
         <button
           onClick={() => router.back()}
-          style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#8A9DBB', fontSize: 13, padding: '16px 0 12px', display: 'flex', alignItems: 'center', gap: 4 }}
+          style={{
+            background: 'none', border: 'none',
+            color: C.muted, fontSize: 13, fontWeight: 600,
+            padding: '14px 0 10px',
+            display: 'flex', alignItems: 'center', gap: 5,
+            transition: 'color 0.15s',
+          }}
         >
-          ← بازگشت
+          <ChevronRightIcon size={16} /> بازگشت
         </button>
 
-        {/* Hero Card — سبز مثل تصویر */}
+        {/* ── Hero Card ─────────────────────────────────────── */}
         <div style={{
-          background: '#1BC9A8', borderRadius: 20, padding: '20px 20px 16px',
-          marginBottom: 16, position: 'relative', overflow: 'hidden',
+          background: `linear-gradient(145deg, ${C.heroStart} 0%, ${C.heroMid} 45%, ${C.heroEnd} 100%)`,
+          borderRadius: 28,
+          padding: '24px 20px 22px',
+          marginBottom: 14,
+          position: 'relative',
+          overflow: 'hidden',
+          boxShadow: '0 16px 48px rgba(0,0,0,0.30)',
+          animation: 'fadeInUp 0.45s cubic-bezier(.34,1.2,.64,1) both',
         }}>
-          {/* گرادیان خفیف پس‌زمینه */}
           <div style={{
-            position: 'absolute', inset: 0, opacity: 0.15,
-            background: `radial-gradient(circle at top left, ${dotColor}, transparent 60%)`,
+            position: 'absolute', top: -50, right: -50,
+            width: 220, height: 220, borderRadius: '50%',
+            background: `radial-gradient(circle, ${dotColor}35 0%, transparent 65%)`,
+            filter: 'blur(28px)',
+            animation: 'blobPulse 6s ease-in-out infinite',
+          }} />
+          <div style={{
+            position: 'absolute', bottom: -40, left: -30,
+            width: 180, height: 180, borderRadius: '50%',
+            background: `radial-gradient(circle, ${C.blue}22 0%, transparent 65%)`,
+            filter: 'blur(24px)',
+            animation: 'blobPulse 8s ease-in-out infinite reverse',
           }} />
 
           <div style={{ position: 'relative' }}>
-            {/* سطر اول: آیکون + نام + پلاک */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
                 <div style={{
-                  width: 48, height: 48, borderRadius: 14,
-                  background: 'rgba(255,255,255,0.25)',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24,
-                }}>🚗</div>
+                  width: 58, height: 58, borderRadius: 18,
+                  background: 'rgba(255,255,255,0.1)',
+                  backdropFilter: 'blur(12px)',
+                  border: '1px solid rgba(255,255,255,0.15)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  color: 'white',
+                  boxShadow: '0 4px 16px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.1)',
+                  flexShrink: 0,
+                }}><CarIcon size={28} /></div>
+
                 <div>
-                  <h1 style={{ color: 'white', fontSize: 18, fontWeight: 700, margin: 0 }}>
+                  <h1 style={{
+                    color: 'white',
+                    fontSize: 21, fontWeight: 900, margin: 0,
+                    letterSpacing: '-0.4px',
+                    textShadow: '0 2px 12px rgba(0,0,0,0.25)',
+                  }}>
                     {vehicle.make} {vehicle.model}
                   </h1>
-                  <p style={{ color: 'rgba(255,255,255,0.75)', fontSize: 13, margin: '3px 0 0' }}>
-                    {vehicle.year}{vehicle.color ? ` · ${vehicle.color}` : ''}{vehicle.fuelType ? ` · ${vehicle.fuelType}` : ''}
+                  <p style={{
+                    color: 'rgba(255,255,255,0.6)',
+                    fontSize: 12, fontWeight: 500,
+                    margin: '5px 0 0',
+                  }}>
+                    {vehicle.year}
+                    {vehicle.color ? ` · ${vehicle.color}` : ''}
+                    {vehicle.fuelType ? ` · ${vehicle.fuelType}` : ''}
                   </p>
+                  {vehicle.plateNumber && (() => {
+                    const dash = vehicle.plateNumber!.lastIndexOf('-');
+                    const main = dash > 0 ? vehicle.plateNumber!.slice(0, dash).trim() : vehicle.plateNumber!;
+                    const prov = dash > 0 ? vehicle.plateNumber!.slice(dash + 1).trim() : '';
+                    return (
+                      <div style={{
+                        display: 'inline-flex', alignItems: 'stretch',
+                        borderRadius: 9, overflow: 'hidden',
+                        border: '2px solid rgba(0,0,0,0.35)',
+                        boxShadow: '0 2px 10px rgba(0,0,0,0.35)',
+                        height: 34, marginTop: 10,
+                      }}>
+                        <div style={{
+                          width: 26, flexShrink: 0,
+                          background: 'linear-gradient(160deg,#0d3c7a,#1a5296)',
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          borderRight: '1.5px solid rgba(0,0,0,0.25)',
+                        }}><IranFlag width={16} height={11} /></div>
+                        <div style={{
+                          background: 'linear-gradient(180deg,#f8f8f4,#efefea)',
+                          display: 'flex', alignItems: 'center',
+                          padding: '0 10px',
+                          fontFamily: "'Courier New', monospace",
+                          fontWeight: 900, color: '#111', fontSize: 13,
+                          letterSpacing: 1.5, direction: 'rtl',
+                          borderRight: '1.5px solid rgba(0,0,0,0.15)',
+                          gap: 4,
+                        }}>
+                          {main}
+                        </div>
+                        {prov && (
+                          <div style={{
+                            width: 36, flexShrink: 0,
+                            background: 'linear-gradient(160deg,#0d3c7a,#1a5296)',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            fontFamily: "'Courier New', monospace",
+                            fontWeight: 900, color: 'white', fontSize: 13, letterSpacing: 2,
+                          }}>
+                            {prov}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
                 </div>
               </div>
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6 }}>
+
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+                <svg width={64} height={64} viewBox="0 0 56 56" style={{ overflow: 'visible' }}>
+                  <defs>
+                    <filter id="ringGlow" x="-50%" y="-50%" width="200%" height="200%">
+                      <feGaussianBlur in="SourceGraphic" stdDeviation="3" result="blur" />
+                      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+                    </filter>
+                  </defs>
+                  <circle cx={28} cy={28} r={22} fill="none" stroke="rgba(255,255,255,0.1)" strokeWidth={5} />
+                  <circle
+                    cx={28} cy={28} r={22} fill="none"
+                    stroke={healthColor} strokeWidth={5}
+                    strokeLinecap="round"
+                    strokeDasharray={ringCirc}
+                    strokeDashoffset={ringCirc * (1 - healthPct / 100)}
+                    transform="rotate(-90 28 28)"
+                    filter="url(#ringGlow)"
+                    style={{
+                      transition: 'stroke-dashoffset 1.2s cubic-bezier(.34,1.56,.64,1), stroke 0.5s',
+                    }}
+                  />
+                  <text x={28} y={25} textAnchor="middle" fill="white" fontSize={12} fontWeight="900">{Math.round(healthPct)}%</text>
+                  <text x={28} y={37} textAnchor="middle" fill="rgba(255,255,255,0.5)" fontSize={7} fontWeight="600">سلامت</text>
+                </svg>
                 {alertCount > 0 && (
                   <span style={{
-                    background: 'rgba(255,107,107,0.25)', border: '1px solid rgba(255,107,107,0.4)',
-                    color: 'white', fontSize: 11, padding: '3px 10px', borderRadius: 20,
+                    display: 'flex', alignItems: 'center', gap: 3,
+                    background: 'rgba(239,68,68,0.25)',
+                    border: '1px solid rgba(239,68,68,0.4)',
+                    color: '#FF8585', fontSize: 10, fontWeight: 700,
+                    padding: '3px 10px', borderRadius: 20,
+                    backdropFilter: 'blur(8px)',
                   }}>
-                    {alertCount} هشدار
-                  </span>
-                )}
-                {vehicle.plateNumber && (
-                  <span style={{
-                    background: 'rgba(255,255,255,0.2)', color: 'white',
-                    fontSize: 11, padding: '3px 10px', borderRadius: 8, fontFamily: 'monospace', direction: 'ltr',
-                  }}>
-                    {vehicle.plateNumber}
+                    <AlertTriangleIcon size={11} /> {alertCount} هشدار
                   </span>
                 )}
               </div>
             </div>
 
-            {/* آمار — مثل stat boxes تصویر */}
-            <div style={{ display: 'flex', gap: 8 }}>
-              {[
-                { label: 'کارکرد', value: vehicle.currentMileage.toLocaleString(), sub: 'km' },
-                { label: 'سرویس‌ها', value: String(vehicle.serviceRecords?.length || 0), sub: '' },
-                ...(vehicle.engineCapacity ? [{ label: 'موتور', value: vehicle.engineCapacity, sub: '' }] : []),
-                ...(vehicle.transmission   ? [{ label: 'گیربکس',  value: vehicle.transmission, sub: '' }] : []),
-              ].map(s => (
+            <div style={{ display: 'flex', gap: 7 }}>
+              {vehicleStats.map(s => (
                 <div key={s.label} style={{
-                  flex: 1, background: 'rgba(255,255,255,0.2)',
-                  borderRadius: 12, padding: '8px 10px', textAlign: 'center',
+                  flex: 1,
+                  background: 'rgba(255,255,255,0.08)',
+                  backdropFilter: 'blur(12px)',
+                  border: '1px solid rgba(255,255,255,0.11)',
+                  borderRadius: 14,
+                  padding: '10px 6px',
+                  textAlign: 'center',
                 }}>
-                  <p style={{ color: 'white', fontWeight: 700, fontSize: 14, margin: 0 }}>
-                    {s.value}<span style={{ fontSize: 10, opacity: 0.8, marginRight: 2 }}>{s.sub}</span>
+                  <p style={{
+                    color: 'white', fontWeight: 900, fontSize: 14, margin: 0, lineHeight: 1,
+                  }}>
+                    {s.value}
+                    {s.sub && <span style={{ fontSize: 9, opacity: 0.6, marginRight: 2, fontWeight: 500 }}>{s.sub}</span>}
                   </p>
-                  <p style={{ color: 'rgba(255,255,255,0.7)', fontSize: 11, margin: '2px 0 0' }}>{s.label}</p>
+                  <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: 10, fontWeight: 600, margin: '4px 0 0' }}>
+                    {s.label}
+                  </p>
                 </div>
               ))}
             </div>
           </div>
         </div>
 
-        {/* تب‌ها — pill style مثل تصویر */}
-        <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 4, marginBottom: 16 }}>
-          {TABS.map(t => (
-            <button
-              key={t.id}
-              onClick={() => setTab(t.id)}
-              style={{
-                display: 'flex', alignItems: 'center', gap: 5,
-                padding: '8px 14px', borderRadius: 20, fontSize: 12, fontWeight: 500,
-                whiteSpace: 'nowrap', flexShrink: 0, cursor: 'pointer', border: 'none',
-                background: tab === t.id ? '#1BC9A8' : 'white',
-                color: tab === t.id ? 'white' : '#8A9DBB',
-                boxShadow: tab === t.id
-                  ? '0 4px 12px rgba(27,201,168,0.35)'
-                  : '0 2px 8px rgba(26,42,58,0.07)',
-                transition: 'all 0.15s',
-              }}
-            >
-              <span>{t.icon}</span> {t.label}
-            </button>
-          ))}
+        {/* ── Tab Bar ───────────────────────────────────────── */}
+        <div style={{
+          display: 'flex', gap: 5,
+          overflowX: 'auto', paddingBottom: 4,
+          marginBottom: 18,
+          scrollbarWidth: 'none',
+        }}>
+          {TABS.map(t => {
+            const active = tab === t.id;
+            const Icon = t.icon;
+            return (
+              <button
+                key={t.id}
+                onClick={() => setTab(t.id)}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 5,
+                  padding: active ? '9px 18px' : '9px 13px',
+                  borderRadius: 26, fontSize: 12.5,
+                  fontWeight: active ? 800 : 500,
+                  fontFamily: 'Vazirmatn, sans-serif',
+                  whiteSpace: 'nowrap', flexShrink: 0,
+                  border: 'none',
+                  background: active
+                    ? `linear-gradient(135deg, ${C.green} 0%, ${C.greenDark} 100%)`
+                    : 'rgba(255,255,255,0.06)',
+                  color: active ? 'white' : C.muted,
+                  boxShadow: active ? `0 4px 20px ${C.greenGlow}` : 'none',
+                  transform: active ? 'translateY(-2px)' : 'translateY(0)',
+                  transition: 'all 0.22s cubic-bezier(.34,1.4,.64,1)',
+                }}
+              >
+                <Icon size={14} />
+                {t.label}
+              </button>
+            );
+          })}
         </div>
 
-        {tab === 'overview'   && <OverviewTab  vehicle={vehicle} onRefresh={refresh} />}
+        {tab === 'overview'   && <OverviewTab  vehicle={vehicle} />}
         {tab === 'records'    && <RecordsTab   vehicle={vehicle} onRefresh={refresh} />}
         {tab === 'fuel'       && <FuelTab      vehicleId={id} />}
-        {tab === 'documents'  && <DocumentsTab vehicleId={id} vehicle={vehicle} onRefresh={refresh} />}
+        {tab === 'documents'  && <DocumentsTab vehicleId={id} vehicle={vehicle} />}
         {tab === 'reminders'  && <RemindersTab vehicleId={id} currentMileage={vehicle.currentMileage} />}
         {tab === 'ai'         && <AiTab        vehicleId={id} />}
       </main>
+      <BottomNav />
     </div>
   );
 }
 
-function StatBox({ label, value, sub }: { label: string; value: string; sub?: string }) {
-  return (
-    <div style={{ background: '#EEF2F7', borderRadius: 12, padding: '10px 12px', textAlign: 'center' }}>
-      <p style={{ color: '#1A2A3A', fontWeight: 700, fontSize: 14, margin: 0 }}>
-        {value}<span style={{ color: '#8A9DBB', fontSize: 11, marginRight: 2 }}>{sub}</span>
-      </p>
-      <p style={{ color: '#8A9DBB', fontSize: 11, margin: '2px 0 0' }}>{label}</p>
-    </div>
-  );
-}
-
-// ─── Overview ──────────────────────────────────────────────────────────────────
-function OverviewTab({ vehicle, onRefresh }: { vehicle: Vehicle; onRefresh: () => void }) {
+/* ─── Overview ─────────────────────────────────────────────────── */
+function OverviewTab({ vehicle }: { vehicle: Vehicle }) {
   const docs = [
-    { label: 'بیمه شخص ثالث', icon: '🛡️', expiry: vehicle.insuranceExpiry, days: daysUntil(vehicle.insuranceExpiry) },
-    { label: 'معاینه فنی',    icon: '🔍', expiry: vehicle.technicalExpiry,  days: daysUntil(vehicle.technicalExpiry) },
-    { label: 'کارت خودرو',   icon: '📄', expiry: vehicle.registrationExpiry,days: daysUntil(vehicle.registrationExpiry) },
+    { label: 'بیمه شخص ثالث', icon: <ShieldIcon size={18} />, expiry: vehicle.insuranceExpiry, days: daysUntil(vehicle.insuranceExpiry) },
+    { label: 'معاینه فنی',    icon: <SearchIcon size={18} />, expiry: vehicle.technicalExpiry,  days: daysUntil(vehicle.technicalExpiry) },
+    { label: 'کارت خودرو',   icon: <FileTextIcon size={18} />, expiry: vehicle.registrationExpiry, days: daysUntil(vehicle.registrationExpiry) },
   ].filter(d => d.expiry);
 
   const lastService = vehicle.serviceRecords?.[0];
 
-  const statusStyle = (days: number | null) => {
-    const s = expiryStatus(days);
-    return {
-      ok:      'bg-green-400/10  border-green-400/20  text-emerald-600',
-      warn:    'bg-yellow-400/10 border-yellow-400/20 text-amber-700',
-      danger:  'bg-orange-400/10 border-orange-400/20 text-orange-600',
-      expired: 'bg-red-400/10    border-red-400/20    text-red-600',
-    }[s];
-  };
-
   return (
-    <div className="flex flex-col gap-4">
-      {/* Doc status */}
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12, animation: 'fadeInUp 0.35s ease both' }}>
+      <ConnectedMechanics vehicleId={vehicle.id} />
+
       {docs.length > 0 && (
-        <div className="glass rounded-2xl p-4">
-          <h2 className="text-sm font-semibold text-white mb-3">وضعیت مدارک</h2>
-          <div className="flex flex-col gap-2">
+        <SectionCard title="وضعیت مدارک" icon={<FileTextIcon size={16} />}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {docs.map(d => (
-              <div key={d.label} className={`flex items-center justify-between px-3 py-2.5 rounded-xl border ${statusStyle(d.days)}`}>
-                <div className="flex items-center gap-2">
-                  <span>{d.icon}</span>
-                  <span className="text-sm font-medium">{d.label}</span>
-                </div>
-                <div className="text-left">
-                  <p className="text-xs">{d.expiry}</p>
-                  <p className="text-xs opacity-75">
-                    {d.days === null ? '' : d.days < 0 ? 'منقضی شده' : d.days === 0 ? 'امروز منقضی می‌شود' : `${d.days} روز مانده`}
-                  </p>
-                </div>
-              </div>
+              <StatusRow
+                key={d.label}
+                icon={d.icon}
+                label={d.label}
+                dateLabel={toJalali(d.expiry)}
+                status={expiryStatus(d.days)}
+                days={d.days}
+              />
             ))}
           </div>
-        </div>
+        </SectionCard>
       )}
 
-      {/* Last service */}
-      <div className="glass rounded-2xl p-4">
-        <h2 className="text-sm font-semibold text-white mb-3">آخرین سرویس</h2>
+      <SectionCard title="آخرین سرویس" icon={<WrenchIcon size={16} />}>
         {lastService ? (
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-white font-medium text-sm">{lastService.serviceType}</p>
-              <p className="text-muted text-xs mt-0.5">{lastService.serviceDate} · {lastService.mileage?.toLocaleString()} km</p>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <IconBadge color={svcMeta(lastService.serviceType).color}>
+                {(() => { const I = svcMeta(lastService.serviceType).icon; return <I size={20} />; })()}
+              </IconBadge>
+              <div>
+                <p style={{ fontWeight: 800, color: C.text, fontSize: 14, margin: 0 }}>{lastService.serviceType}</p>
+                <p style={{ color: C.muted, fontSize: 11, fontWeight: 500, margin: '4px 0 0', display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 3 }}><CalendarIcon size={12} /> {toJalali(lastService.serviceDate)}</span>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 3 }}><RoadIcon size={12} /> {lastService.mileage?.toLocaleString()} km</span>
+                </p>
+              </div>
             </div>
             {lastService.nextServiceMileage && (
-              <div className="text-left">
-                <p className="text-xs text-muted">سرویس بعدی</p>
-                <p className="text-accent-light text-sm font-semibold">{lastService.nextServiceMileage.toLocaleString()} km</p>
-                {vehicle.currentMileage < lastService.nextServiceMileage && (
-                  <p className="text-xs text-muted">{(lastService.nextServiceMileage - vehicle.currentMileage).toLocaleString()} km مانده</p>
-                )}
+              <div style={{
+                textAlign: 'left', flexShrink: 0,
+                background: `${C.green}15`,
+                border: `1px solid ${C.green}30`,
+                borderRadius: 12, padding: '8px 12px',
+              }}>
+                <p style={{ fontSize: 10, color: C.muted, margin: 0, fontWeight: 600 }}>سرویس بعدی</p>
+                <p style={{ fontSize: 14, fontWeight: 900, color: C.green, margin: '3px 0 0' }}>
+                  {lastService.nextServiceMileage.toLocaleString()} km
+                </p>
               </div>
             )}
           </div>
         ) : (
-          <p className="text-muted text-sm">هنوز سرویسی ثبت نشده</p>
+          <p style={{ color: C.muted, fontSize: 13, fontWeight: 500 }}>هنوز سرویسی ثبت نشده</p>
         )}
-      </div>
+      </SectionCard>
 
-      {/* Info */}
-      <div className="glass rounded-2xl p-4">
-        <h2 className="text-sm font-semibold text-white mb-3">مشخصات فنی</h2>
-        <div className="grid grid-cols-2 gap-2">
+      <SectionCard title="مشخصات فنی" icon={<GaugeIcon size={16} />}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
           {[
-            { label: 'نوع سوخت',   value: vehicle.fuelType },
-            { label: 'حجم موتور',  value: vehicle.engineCapacity },
-            { label: 'گیربکس',     value: vehicle.transmission },
-            { label: 'رنگ',        value: vehicle.color },
-            { label: 'VIN',        value: vehicle.vin },
+            { label: 'نوع سوخت',  value: vehicle.fuelType },
+            { label: 'حجم موتور', value: vehicle.engineCapacity },
+            { label: 'گیربکس',    value: vehicle.transmission },
+            { label: 'رنگ',       value: vehicle.color },
+            { label: 'VIN',       value: vehicle.vin },
           ].filter(r => r.value).map(r => (
-            <div key={r.label} className="bg-surface/60 rounded-xl p-3">
-              <p className="text-xs text-muted">{r.label}</p>
-              <p className="text-sm text-white font-medium mt-0.5">{r.value}</p>
+            <div key={r.label} style={{
+              background: C.surface2,
+              border: `1px solid ${C.border}`,
+              borderRadius: 14, padding: '12px 14px',
+            }}>
+              <p style={{ fontSize: 10, color: C.muted, fontWeight: 600, margin: 0, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                {r.label}
+              </p>
+              <p style={{ fontSize: 14, fontWeight: 700, color: C.text, margin: '4px 0 0' }}>{r.value}</p>
             </div>
           ))}
         </div>
-        {vehicle.notes && <p className="text-muted text-sm mt-3 p-3 bg-surface/60 rounded-xl">{vehicle.notes}</p>}
-      </div>
+        {vehicle.notes && (
+          <p style={{
+            color: C.muted, fontSize: 12, fontWeight: 500,
+            marginTop: 10, padding: '12px 14px',
+            background: C.surface2, borderRadius: 14,
+            lineHeight: 1.8,
+            border: `1px solid ${C.border}`,
+          }}>
+            {vehicle.notes}
+          </p>
+        )}
+      </SectionCard>
     </div>
   );
 }
 
-// ─── Records ───────────────────────────────────────────────────────────────────
-function RecordsTab({ vehicle, onRefresh }: { vehicle: Vehicle; onRefresh: () => void }) {
-  const [showAdd, setShowAdd] = useState(false);
-  const records = vehicle.serviceRecords || [];
+/* ─── Connected mechanics ──────────────────────────────────────── */
+function ConnectedMechanics({ vehicleId }: { vehicleId: string }) {
+  const [list, setList] = useState<VehicleAccessEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showInvite, setShowInvite] = useState(false);
 
-  async function del(id: string) {
-    if (!confirm('این سرویس حذف شود؟')) return;
-    await api.records.remove(vehicle.id, id);
-    onRefresh();
+  function load() {
+    api.access.list(vehicleId).then(setList).finally(() => setLoading(false));
+  }
+  useEffect(() => { load(); }, [vehicleId]);
+
+  async function revoke(id: string) {
+    if (!confirm('دسترسی این تعمیرگاه لغو شود؟')) return;
+    await api.access.revoke(vehicleId, id);
+    load();
   }
 
-  return (
-    <div>
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="font-semibold text-white">تاریخچه سرویس ({records.length})</h2>
-        <button onClick={() => setShowAdd(true)} className="bg-accent hover:bg-accent/90 text-white px-3 py-2 rounded-xl text-xs font-semibold transition-colors">
-          + ثبت سرویس
-        </button>
-      </div>
+  if (loading) return null;
 
-      {records.length === 0 ? (
-        <Empty icon="🔧" text="هنوز سرویسی ثبت نشده" />
+  return (
+    <SectionCard
+      title="تعمیرگاه‌های متصل"
+      icon={<UserPlusIcon size={16} />}
+      action={<Button size="sm" onClick={() => setShowInvite(true)} icon={<PlusIcon size={14} />}>افزودن مکانیک</Button>}
+    >
+      {list.length === 0 ? (
+        <p style={{ color: C.muted, fontSize: 13, fontWeight: 500 }}>
+          هنوز مکانیکی به این خودرو متصل نیست. با «افزودن مکانیک» یک کد دعوت بساز و به تعمیرگاه بده.
+        </p>
       ) : (
-        <div className="flex flex-col gap-3">
-          {records.map((r, i) => (
-            <div key={r.id} className="glass rounded-xl p-4 flex gap-3">
-              <div className="flex flex-col items-center gap-1 pt-1.5 flex-shrink-0">
-                <div className="w-2.5 h-2.5 rounded-full bg-accent" />
-                {i < records.length - 1 && <div className="w-0.5 flex-1 bg-border min-h-4" />}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {list.map(m => (
+            <div key={m.id} style={{
+              display: 'flex', alignItems: 'center', gap: 10, padding: '11px 14px',
+              borderRadius: 14, border: `1px solid ${C.border}`, background: C.surface2,
+            }}>
+              <IconBadge color={C.green} size={38}><WrenchIcon size={17} /></IconBadge>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <p style={{ fontSize: 13, fontWeight: 700, color: C.text, margin: 0 }}>{m.workshopName || 'تعمیرگاه'}</p>
+                <p style={{ fontSize: 11, color: C.muted, fontWeight: 500, margin: '3px 0 0', direction: 'ltr', textAlign: 'right' }}>
+                  {m.mechanicPhone}
+                </p>
               </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-start justify-between gap-2">
-                  <div>
-                    <p className="font-semibold text-white text-sm">{r.serviceType}</p>
-                    <p className="text-xs text-muted mt-0.5">{r.serviceDate} · {r.mileage?.toLocaleString()} km</p>
-                  </div>
-                  <div className="flex items-center gap-2 flex-shrink-0">
-                    {r.cost && <span className="text-xs text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-lg">{r.cost.toLocaleString()} ت</span>}
-                    <button onClick={() => del(r.id)} className="text-muted hover:text-red-400 transition-colors text-xs p-1">✕</button>
-                  </div>
-                </div>
-                {r.description && <p className="text-xs text-muted mt-1.5 leading-relaxed">{r.description}</p>}
-                {r.workshop     && <p className="text-xs text-muted mt-1">🔧 {r.workshop}</p>}
-                {r.nextServiceMileage && (
-                  <p className="text-xs text-accent-light mt-2">⏭ سرویس بعدی: {r.nextServiceMileage.toLocaleString()} km{r.nextServiceDate ? ` · ${r.nextServiceDate}` : ''}</p>
-                )}
-              </div>
+              <IconButton label="لغو دسترسی" onClick={() => revoke(m.id)} size={30}><TrashIcon size={14} /></IconButton>
             </div>
           ))}
         </div>
       )}
+      {showInvite && <InviteMechanicSheet vehicleId={vehicleId} onClose={() => setShowInvite(false)} onGranted={load} />}
+    </SectionCard>
+  );
+}
 
-      {showAdd && <AddServiceModal vehicleId={vehicle.id} onClose={() => setShowAdd(false)} onSaved={onRefresh} />}
+function InviteMechanicSheet({ vehicleId, onClose, onGranted }: { vehicleId: string; onClose: () => void; onGranted: () => void }) {
+  const [code, setCode] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    api.invites.create(vehicleId)
+      .then(inv => setCode(inv.code))
+      .catch(err => setError(err.message))
+      .finally(() => setLoading(false));
+  }, [vehicleId]);
+
+  function copy() {
+    navigator.clipboard?.writeText(code);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  }
+
+  return (
+    <Sheet title="افزودن مکانیک" icon={<UserPlusIcon size={17} />} onClose={() => { onGranted(); onClose(); }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16, alignItems: 'center', textAlign: 'center' }}>
+        {loading ? (
+          <Spinner />
+        ) : error ? (
+          <div style={{ fontSize: 13, color: '#F87171' }}>{error}</div>
+        ) : (
+          <>
+            <p style={{ color: C.muted, fontSize: 13, fontWeight: 500, lineHeight: 1.8, margin: 0 }}>
+              این کد رو به مکانیک بده تا با ثبت‌نام یا ورود به‌عنوان مکانیک، وارد این خودرو کنه.
+              کد تا ۷ روز معتبره و فقط یک‌بار قابل استفاده‌ست.
+            </p>
+            <div style={{
+              background: `${C.green}15`, border: `1.5px dashed ${C.green}50`, borderRadius: 18,
+              padding: '18px 24px', width: '100%',
+            }}>
+              <p style={{
+                fontFamily: "'Courier New', monospace", fontSize: 28, fontWeight: 900,
+                letterSpacing: 6, color: C.green, margin: 0, direction: 'ltr',
+              }}>{code}</p>
+            </div>
+            <Button onClick={copy} variant="secondary" fullWidth icon={<CopyIcon size={15} />}>
+              {copied ? 'کپی شد' : 'کپی کد'}
+            </Button>
+          </>
+        )}
+      </div>
+    </Sheet>
+  );
+}
+
+/* ─── Records ──────────────────────────────────────────────────── */
+function RecordsTab({ vehicle, onRefresh }: { vehicle: Vehicle; onRefresh: () => void }) {
+  const [showAdd, setShowAdd] = useState(false);
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const [records, setRecords] = useState<ServiceRecord[]>(vehicle.serviceRecords || []);
+
+  function load() {
+    api.records.list(vehicle.id).then(setRecords);
+  }
+  useEffect(() => { load(); }, [vehicle.id]);
+
+  function refreshAll() {
+    load();
+    onRefresh();
+  }
+
+  async function del(recordId: string) {
+    if (!confirm('این سرویس حذف شود؟')) return;
+    await api.records.remove(vehicle.id, recordId);
+    refreshAll();
+  }
+
+  const totalCost = records.reduce((s, r) => s + (r.invoice?.total ?? r.cost ?? 0), 0);
+  const lastRec   = records[0];
+  const nextKm    = lastRec?.nextServiceMileage;
+  const kmLeft    = nextKm ? nextKm - vehicle.currentMileage : null;
+  const pct       = nextKm && lastRec?.mileage && nextKm > lastRec.mileage
+    ? Math.max(0, Math.min(100, ((vehicle.currentMileage - lastRec.mileage) / (nextKm - lastRec.mileage)) * 100))
+    : null;
+  const barColor  = pct === null ? C.green : pct > 90 ? '#EF4444' : pct > 70 ? '#F59E0B' : C.green;
+
+  const statItems = [
+    { label: 'کل سرویس',  value: String(records.length), sub: 'مورد', icon: <WrenchIcon size={17} />, color: '#818CF8' },
+    {
+      label: 'هزینه کل',
+      value: totalCost > 0 ? `${(totalCost / 1_000_000).toFixed(1)}M` : '—',
+      sub: totalCost > 0 ? 'تومان' : '',
+      icon: <WalletIcon size={17} />, color: '#34D399',
+    },
+    {
+      label: 'تا سرویس',
+      value: kmLeft !== null ? (kmLeft <= 0 ? 'سررسید' : `${Math.round(Math.abs(kmLeft) / 1000)}k`) : '—',
+      sub: kmLeft !== null && kmLeft > 0 ? 'km' : '',
+      icon: kmLeft !== null && kmLeft <= 0 ? <AlertTriangleIcon size={17} /> : <PinIcon size={17} />,
+      color: kmLeft !== null && kmLeft <= 0 ? '#F87171' : '#FBBF24',
+    },
+  ];
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12, animation: 'fadeInUp 0.35s ease both' }}>
+
+      {records.length > 0 && <StatGrid stats={statItems} />}
+
+      {pct !== null && nextKm && (
+        <Card>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <PinIcon size={16} color={C.text} />
+              <span style={{ fontSize: 13, fontWeight: 800, color: C.text }}>پیشرفت تا سرویس بعدی</span>
+            </div>
+            <span style={{
+              fontSize: 11, fontWeight: 800, color: barColor,
+              background: `${barColor}18`, padding: '4px 12px', borderRadius: 20,
+              border: `1px solid ${barColor}30`,
+            }}>
+              {kmLeft !== null && kmLeft <= 0 ? 'وقت سرویس!' : `${(kmLeft! / 1000).toFixed(1)}k km مانده`}
+            </span>
+          </div>
+          <div style={{ height: 8, background: 'rgba(255,255,255,0.08)', borderRadius: 8, overflow: 'hidden' }}>
+            <div style={{
+              height: '100%', width: `${pct}%`, borderRadius: 8,
+              background: `linear-gradient(90deg, ${C.green}, ${barColor})`,
+              transition: 'width 1s cubic-bezier(.4,0,.2,1)',
+            }} />
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8 }}>
+            <span style={{ fontSize: 10, color: C.muted, fontWeight: 500 }}>
+              فعلی: {vehicle.currentMileage.toLocaleString()} km
+            </span>
+            <span style={{ fontSize: 10, color: C.muted, fontWeight: 500 }}>
+              هدف: {nextKm.toLocaleString()} km · {Math.round(pct)}%
+            </span>
+          </div>
+        </Card>
+      )}
+
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '4px 2px' }}>
+        <h2 style={{ fontSize: 16, fontWeight: 800, color: C.text, margin: 0 }}>
+          تاریخچه سرویس
+          {records.length > 0 && (
+            <span style={{ fontSize: 12, color: C.muted, fontWeight: 500, marginRight: 6 }}>
+              ({records.length})
+            </span>
+          )}
+        </h2>
+        <Button size="sm" onClick={() => setShowAdd(true)} icon={<PlusIcon size={15} />}>ثبت سرویس</Button>
+      </div>
+
+      {records.length === 0 ? (
+        <EmptyState icon={<WrenchIcon size={26} />} title="هنوز سرویسی ثبت نشده"
+          sub="اولین سرویس ماشینت رو ثبت کن و تاریخچه کامل داشته باش"
+          onAdd={() => setShowAdd(true)} btnLabel="ثبت اولین سرویس" />
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, position: 'relative' }}>
+          {records.length > 1 && (
+            <div style={{
+              position: 'absolute', right: 35, top: 56, bottom: 56, width: 2, zIndex: 0,
+              background: `linear-gradient(to bottom, ${C.green}60, transparent)`,
+              borderRadius: 2,
+            }} />
+          )}
+
+          {records.map(r => {
+            const meta       = svcMeta(r.serviceType);
+            const Icon       = meta.icon;
+            const isExpanded = expanded === r.id;
+            return (
+              <div key={r.id} style={{ position: 'relative', zIndex: 1 }}>
+                <div style={{
+                  background: C.surface, borderRadius: 20, overflow: 'hidden',
+                  boxShadow: isExpanded ? `0 8px 32px rgba(0,0,0,0.20), 0 0 0 2px ${meta.color}35` : 'none',
+                  border: `1px solid ${isExpanded ? meta.color + '25' : C.border}`,
+                  transition: 'box-shadow 0.22s ease, border-color 0.22s ease',
+                }}>
+                  <div style={{ height: 3, background: `linear-gradient(90deg, ${meta.color}, ${meta.color}40)` }} />
+
+                  <div style={{ padding: '14px 16px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                      <IconBadge color={meta.color}><Icon size={20} /></IconBadge>
+
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <p style={{ fontSize: 14, fontWeight: 800, color: C.text, margin: 0 }}>
+                          {r.serviceType}
+                        </p>
+                        <p style={{ fontSize: 11, color: C.muted, fontWeight: 500, margin: '5px 0 0', display: 'flex', gap: 10 }}>
+                          <span style={{ display: 'flex', alignItems: 'center', gap: 3 }}><CalendarIcon size={12} /> {toJalali(r.serviceDate)}</span>
+                          {r.mileage && <span style={{ display: 'flex', alignItems: 'center', gap: 3 }}><RoadIcon size={12} /> {r.mileage.toLocaleString()} km</span>}
+                        </p>
+                        {r.createdByRole === 'mechanic' && r.createdByName && (
+                          <p style={{ fontSize: 10, color: C.subtle, margin: '4px 0 0', display: 'flex', alignItems: 'center', gap: 3 }}>
+                            <WrenchIcon size={11} /> ثبت‌شده توسط {r.createdByName}
+                          </p>
+                        )}
+                      </div>
+
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6, flexShrink: 0 }}>
+                        {r.invoice ? (
+                          <span style={{
+                            background: r.invoice.paymentStatus === 'paid' ? 'rgba(52,211,153,0.14)' : r.invoice.paymentStatus === 'partial' ? 'rgba(245,158,11,0.14)' : 'rgba(239,68,68,0.14)',
+                            color: r.invoice.paymentStatus === 'paid' ? '#34D399' : r.invoice.paymentStatus === 'partial' ? '#FBBF24' : '#F87171',
+                            fontSize: 11, fontWeight: 800,
+                            padding: '3px 10px', borderRadius: 9,
+                            border: `1px solid ${r.invoice.paymentStatus === 'paid' ? 'rgba(52,211,153,0.25)' : r.invoice.paymentStatus === 'partial' ? 'rgba(245,158,11,0.25)' : 'rgba(239,68,68,0.25)'}`,
+                          }}>
+                            {(r.invoice.total / 1000).toFixed(0)}K ت
+                          </span>
+                        ) : r.cost ? (
+                          <span style={{
+                            background: 'rgba(52,211,153,0.12)', color: '#34D399',
+                            fontSize: 11, fontWeight: 800,
+                            padding: '3px 10px', borderRadius: 9,
+                            border: '1px solid rgba(52,211,153,0.25)',
+                          }}>
+                            {r.cost >= 1_000_000
+                              ? `${(r.cost / 1_000_000).toFixed(1)}M`
+                              : `${(r.cost / 1000).toFixed(0)}K`} ت
+                          </span>
+                        ) : null}
+                        <IconButton
+                          label={isExpanded ? 'بستن جزئیات' : 'نمایش جزئیات'}
+                          active={isExpanded}
+                          size={28}
+                          onClick={() => setExpanded(isExpanded ? null : r.id)}
+                        >
+                          {isExpanded ? <ChevronUpIcon size={14} /> : <ChevronDownIcon size={14} />}
+                        </IconButton>
+                      </div>
+                    </div>
+
+                    {isExpanded && (
+                      <div style={{
+                        marginTop: 14, paddingTop: 14,
+                        borderTop: `1px dashed ${meta.color}35`,
+                        display: 'flex', flexDirection: 'column', gap: 10,
+                        animation: 'fadeInUp 0.2s ease both',
+                      }}>
+                        {r.workshop && (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: C.text, fontWeight: 500 }}>
+                            تعمیرگاه: <strong style={{ fontWeight: 800 }}>{r.workshop}</strong>
+                          </div>
+                        )}
+                        {r.description && (
+                          <span style={{ fontSize: 12, color: C.muted, lineHeight: 1.8, fontWeight: 500 }}>
+                            {r.description}
+                          </span>
+                        )}
+                        {r.nextServiceMileage && (
+                          <div style={{
+                            background: `${meta.color}1F`, borderRadius: 12,
+                            padding: '11px 14px',
+                            border: `1px solid ${meta.color}25`,
+                            display: 'flex', alignItems: 'center', gap: 10,
+                          }}>
+                            <PinIcon size={16} color={meta.color} />
+                            <div>
+                              <p style={{ fontSize: 12, color: meta.color, fontWeight: 800, margin: 0 }}>
+                                سرویس بعدی: {r.nextServiceMileage.toLocaleString()} km
+                              </p>
+                              {r.nextServiceDate && (
+                                <p style={{ fontSize: 11, color: C.muted, fontWeight: 500, margin: '3px 0 0' }}>
+                                  {toJalali(r.nextServiceDate)}
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                        {r.invoice && <InvoiceDetails vehicleId={vehicle.id} recordId={r.id} />}
+                        <Button variant="danger" size="sm" onClick={() => del(r.id)} icon={<TrashIcon size={14} />} style={{ alignSelf: 'flex-start' }}>
+                          حذف سرویس
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {showAdd && <AddServiceModal vehicleId={vehicle.id} onClose={() => setShowAdd(false)} onSaved={refreshAll} />}
     </div>
   );
 }
 
-// ─── Fuel ──────────────────────────────────────────────────────────────────────
+function InvoiceDetails({ vehicleId, recordId }: { vehicleId: string; recordId: string }) {
+  const [invoice, setInvoice] = useState<import('@/lib/api').Invoice | null>(null);
+
+  useEffect(() => {
+    api.invoices.get(vehicleId, recordId).then(setInvoice).catch(() => {});
+  }, [vehicleId, recordId]);
+
+  if (!invoice) return null;
+
+  const statusColor = invoice.paymentStatus === 'paid' ? '#34D399' : invoice.paymentStatus === 'partial' ? '#FBBF24' : '#F87171';
+  const statusLabel = invoice.paymentStatus === 'paid' ? 'پرداخت‌شده' : invoice.paymentStatus === 'partial' ? 'پرداخت جزئی' : 'پرداخت‌نشده';
+
+  return (
+    <div style={{ background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 14, padding: '12px 14px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+        <span style={{ fontSize: 12, fontWeight: 800, color: C.text, display: 'flex', alignItems: 'center', gap: 6 }}>
+          <WalletIcon size={14} /> فاکتور
+        </span>
+        <span style={{ fontSize: 10, fontWeight: 800, color: statusColor, background: `${statusColor}22`, padding: '2px 9px', borderRadius: 7 }}>
+          {statusLabel}
+        </span>
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+        {invoice.items.map((it, i) => (
+          <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11.5, color: C.muted }}>
+            <span>{it.name} <span style={{ color: C.subtle }}>× {it.quantity}</span></span>
+            <span style={{ color: C.text, fontWeight: 600 }}>{(it.quantity * it.unitPrice).toLocaleString()} ت</span>
+          </div>
+        ))}
+      </div>
+      <div style={{ borderTop: `1px dashed ${C.border}`, marginTop: 9, paddingTop: 9, display: 'flex', flexDirection: 'column', gap: 3 }}>
+        {invoice.discount > 0 && (
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11.5, color: C.muted }}>
+            <span>تخفیف</span><span>-{invoice.discount.toLocaleString()} ت</span>
+          </div>
+        )}
+        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, fontWeight: 800, color: C.text }}>
+          <span>مبلغ نهایی</span><span>{invoice.total.toLocaleString()} ت</span>
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11.5, color: C.muted }}>
+          <span>پرداخت‌شده</span><span>{invoice.paidAmount.toLocaleString()} ت</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ─── Fuel ─────────────────────────────────────────────────────── */
 function FuelTab({ vehicleId }: { vehicleId: string }) {
   const [logs, setLogs]       = useState<FuelLog[]>([]);
   const [stats, setStats]     = useState<FuelStats | null>(null);
@@ -338,46 +856,63 @@ function FuelTab({ vehicleId }: { vehicleId: string }) {
       .finally(() => setLoading(false));
   }
   useEffect(() => { load(); }, [vehicleId]);
-
-  async function del(id: string) {
-    await api.fuel.remove(vehicleId, id);
-    load();
-  }
+  async function del(id: string) { await api.fuel.remove(vehicleId, id); load(); }
 
   if (loading) return <Spinner />;
 
-  return (
-    <div>
-      {stats && (stats.totalLiters > 0) && (
-        <div className="grid grid-cols-3 gap-3 mb-5">
-          <StatCard label="مصرف متوسط" value={stats.avgConsumption ? `${stats.avgConsumption} L` : '—'} sub="در ۱۰۰ km" />
-          <StatCard label="کل سوخت"   value={`${stats.totalLiters.toLocaleString()}`}    sub="لیتر" />
-          <StatCard label="کل هزینه"  value={stats.totalCost ? stats.totalCost.toLocaleString() : '—'} sub="تومان" />
-        </div>
-      )}
+  const fuelStats = stats && stats.totalLiters > 0 ? [
+    { label: 'مصرف / ۱۰۰km', value: stats.avgConsumption ? `${stats.avgConsumption}` : '—', sub: stats.avgConsumption ? 'L' : '', icon: <GaugeIcon size={17} />, color: '#818CF8' },
+    { label: 'کل سوخت',       value: `${stats.totalLiters}`, sub: 'L', icon: <FuelIcon size={17} />, color: '#FB923C' },
+    { label: 'کل هزینه',      value: stats.totalCost ? `${(stats.totalCost / 1_000_000).toFixed(1)}M` : '—', sub: 'تومان', icon: <WalletIcon size={17} />, color: '#34D399' },
+  ] : null;
 
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="font-semibold text-white">تاریخچه سوخت ({logs.length})</h2>
-        <button onClick={() => setShowAdd(true)} className="bg-accent hover:bg-accent/90 text-white px-3 py-2 rounded-xl text-xs font-semibold transition-colors">
-          + ثبت سوخت
-        </button>
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12, animation: 'fadeInUp 0.35s ease both' }}>
+      {fuelStats && <StatGrid stats={fuelStats} />}
+
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '2px 2px' }}>
+        <h2 style={{ fontSize: 16, fontWeight: 800, color: C.text, margin: 0 }}>تاریخچه سوخت</h2>
+        <Button size="sm" onClick={() => setShowAdd(true)} icon={<PlusIcon size={15} />}>ثبت سوخت</Button>
       </div>
 
-      {logs.length === 0 ? <Empty icon="⛽" text="هنوز سوختی ثبت نشده" /> : (
-        <div className="flex flex-col gap-2">
+      {logs.length === 0 ? (
+        <EmptyState icon={<FuelIcon size={26} />} title="هنوز سوختی ثبت نشده"
+          sub="هر بار که باک می‌زنی ثبتش کن تا مصرف ماشینت رو دنبال کنی"
+          onAdd={() => setShowAdd(true)} btnLabel="ثبت اولین سوخت" />
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
           {logs.map(l => (
-            <div key={l.id} className="glass rounded-xl p-4 flex items-center gap-3">
-              <div className="w-9 h-9 rounded-xl bg-accent/20 flex items-center justify-center text-lg flex-shrink-0">⛽</div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
-                  <span className="text-white font-semibold text-sm">{l.liters} لیتر</span>
-                  {l.isFullTank && <span className="text-xs bg-blue-400/10 text-blue-400 px-1.5 py-0.5 rounded">باک پر</span>}
+            <div key={l.id} style={{
+              background: C.surface, borderRadius: 18, padding: '14px 16px',
+              border: `1px solid ${C.border}`,
+              display: 'flex', alignItems: 'center', gap: 12,
+            }}>
+              <IconBadge color="#FB923C" size={44}><FuelIcon size={20} /></IconBadge>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontWeight: 800, color: C.text, fontSize: 14 }}>{l.liters} لیتر</span>
+                  {l.isFullTank && (
+                    <span style={{
+                      fontSize: 10, fontWeight: 700,
+                      background: 'rgba(59,130,246,0.12)', color: '#60A5FA',
+                      padding: '2px 9px', borderRadius: 7,
+                      border: '1px solid rgba(96,165,250,0.25)',
+                    }}>باک پر</span>
+                  )}
                 </div>
-                <p className="text-xs text-muted mt-0.5">{l.date} · {l.mileage?.toLocaleString()} km{l.station ? ` · ${l.station}` : ''}</p>
+                <p style={{ fontSize: 11, color: C.muted, fontWeight: 500, margin: '4px 0 0', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 3 }}><CalendarIcon size={12} /> {toJalali(l.date)}</span>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 3 }}><RoadIcon size={12} /> {l.mileage?.toLocaleString()} km</span>
+                  {l.station && <span style={{ display: 'flex', alignItems: 'center', gap: 3 }}><PinIcon size={12} /> {l.station}</span>}
+                </p>
               </div>
-              <div className="text-left flex-shrink-0 flex items-center gap-2">
-                {l.cost && <span className="text-xs text-emerald-600">{l.cost.toLocaleString()} ت</span>}
-                <button onClick={() => del(l.id)} className="text-muted hover:text-red-400 transition-colors text-xs p-1">✕</button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                {l.cost && (
+                  <span style={{ fontSize: 12, fontWeight: 800, color: '#34D399' }}>
+                    {(l.cost / 1000).toFixed(0)}K ت
+                  </span>
+                )}
+                <IconButton label="حذف" onClick={() => del(l.id)} size={28}><XIcon size={13} /></IconButton>
               </div>
             </div>
           ))}
@@ -389,103 +924,122 @@ function FuelTab({ vehicleId }: { vehicleId: string }) {
   );
 }
 
-// ─── Documents ─────────────────────────────────────────────────────────────────
-function DocumentsTab({ vehicleId, vehicle, onRefresh }: { vehicleId: string; vehicle: Vehicle; onRefresh: () => void }) {
+/* ─── Documents ────────────────────────────────────────────────── */
+const DOC_ICONS: Record<string, IconComp> = {
+  insurance: ShieldIcon, technical: SearchIcon, registration: FileTextIcon,
+  warranty: CheckIcon, other: PaperclipIcon,
+};
+
+function DocumentsTab({ vehicleId, vehicle }: { vehicleId: string; vehicle: Vehicle }) {
   const [docs, setDocs]       = useState<VehicleDoc[]>([]);
   const [showAdd, setShowAdd] = useState(false);
   const [loading, setLoading] = useState(true);
 
   function load() { api.documents.list(vehicleId).then(setDocs).finally(() => setLoading(false)); }
   useEffect(() => { load(); }, [vehicleId]);
+  async function del(id: string) { await api.documents.remove(vehicleId, id); load(); }
 
-  async function del(id: string) {
-    await api.documents.remove(vehicleId, id);
-    load();
-  }
-
-  const docStatus = (d: VehicleDoc) => {
-    const days = daysUntil(d.expiryDate);
-    return expiryStatus(days);
-  };
-
-  const statusColors = {
-    ok:      'border-green-400/20 bg-green-400/5',
-    warn:    'border-yellow-400/20 bg-yellow-400/5',
-    danger:  'border-orange-400/20 bg-orange-400/5',
-    expired: 'border-red-400/20 bg-red-400/5',
-  };
-
-  // Quick update from vehicle entity
   const quickDocs = [
-    { label: 'بیمه شخص ثالث', icon: '🛡️', expiry: vehicle.insuranceExpiry,   field: 'insuranceExpiry' },
-    { label: 'معاینه فنی',    icon: '🔍', expiry: vehicle.technicalExpiry,    field: 'technicalExpiry' },
-    { label: 'کارت خودرو',   icon: '📄', expiry: vehicle.registrationExpiry, field: 'registrationExpiry' },
+    { label: 'بیمه شخص ثالث', icon: <ShieldIcon size={18} />, expiry: vehicle.insuranceExpiry },
+    { label: 'معاینه فنی',    icon: <SearchIcon size={18} />, expiry: vehicle.technicalExpiry },
+    { label: 'کارت خودرو',   icon: <FileTextIcon size={18} />, expiry: vehicle.registrationExpiry },
   ];
 
   if (loading) return <Spinner />;
 
   return (
-    <div>
-      {/* Quick vehicle doc dates */}
-      <div className="glass rounded-2xl p-4 mb-5">
-        <h2 className="text-sm font-semibold text-white mb-3">تاریخ انقضای مدارک خودرو</h2>
-        <div className="flex flex-col gap-2">
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12, animation: 'fadeInUp 0.35s ease both' }}>
+      <SectionCard title="انقضای مدارک خودرو" icon={<CalendarIcon size={16} />}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {quickDocs.map(d => {
             const days = daysUntil(d.expiry);
-            const s    = expiryStatus(days);
-            return (
-              <div key={d.field} className={`flex items-center justify-between px-3 py-2.5 rounded-xl border ${statusColors[s]}`}>
-                <span className="text-sm text-white flex items-center gap-2"><span>{d.icon}</span>{d.label}</span>
-                <div className="text-left">
-                  {d.expiry
-                    ? <><p className="text-xs text-white">{d.expiry}</p><p className={`text-xs ${s === 'ok' ? 'text-emerald-600' : s === 'expired' ? 'text-red-600' : 'text-orange-600'}`}>{days !== null && days < 0 ? 'منقضی' : days !== null ? `${days} روز` : ''}</p></>
-                    : <p className="text-xs text-muted">ثبت نشده</p>
-                  }
-                </div>
+            return d.expiry ? (
+              <StatusRow key={d.label} icon={d.icon} label={d.label} dateLabel={toJalali(d.expiry)} status={expiryStatus(days)} days={days} />
+            ) : (
+              <div key={d.label} style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                padding: '12px 14px', borderRadius: 14,
+                border: `1.5px solid ${C.border}`, background: C.surface2,
+              }}>
+                <span style={{ fontSize: 13, fontWeight: 600, color: C.text, display: 'flex', alignItems: 'center', gap: 8 }}>
+                  {d.icon}{d.label}
+                </span>
+                <p style={{ fontSize: 11, color: C.muted, fontWeight: 500, margin: 0 }}>ثبت نشده</p>
               </div>
             );
           })}
         </div>
-        <p className="text-xs text-muted mt-3">برای بروزرسانی این تاریخ‌ها، اطلاعات خودرو را ویرایش کنید.</p>
+        <p style={{ fontSize: 11, color: C.muted, fontWeight: 500, marginTop: 10 }}>
+          برای بروزرسانی، اطلاعات خودرو را ویرایش کنید.
+        </p>
+      </SectionCard>
+
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '2px 2px' }}>
+        <h2 style={{ fontSize: 16, fontWeight: 800, color: C.text, margin: 0 }}>مدارک ذخیره شده</h2>
+        <Button size="sm" onClick={() => setShowAdd(true)} icon={<PlusIcon size={15} />}>افزودن مدرک</Button>
       </div>
 
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="font-semibold text-white">مدارک ذخیره شده ({docs.length})</h2>
-        <button onClick={() => setShowAdd(true)} className="bg-accent hover:bg-accent/90 text-white px-3 py-2 rounded-xl text-xs font-semibold transition-colors">+ افزودن مدرک</button>
-      </div>
-
-      {docs.length === 0 ? <Empty icon="📄" text="هنوز مدرکی ثبت نشده" /> : (
-        <div className="flex flex-col gap-2">
+      {docs.length === 0 ? (
+        <EmptyState icon={<FileTextIcon size={26} />} title="هنوز مدرکی ثبت نشده"
+          sub="بیمه، معاینه فنی و مدارک خودرو رو اینجا نگه دار تا همیشه دم دستت باشه"
+          onAdd={() => setShowAdd(true)} btnLabel="افزودن مدرک" />
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
           {docs.map(d => {
             const days = daysUntil(d.expiryDate);
-            const s    = docStatus(d);
-            const typeInfo = DOC_TYPES.find(t => t.value === d.type);
+            const s    = expiryStatus(days);
+            const t    = STATUS_THEME[s];
+            const typeInfo = DOC_TYPES.find(tp => tp.value === d.type);
+            const DocIcon = DOC_ICONS[d.type] ?? PaperclipIcon;
             return (
-              <div key={d.id} className={`glass rounded-xl p-4 border ${statusColors[s]}`}>
-                <div className="flex items-start justify-between">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xl">{typeInfo?.icon || '📎'}</span>
+              <div key={d.id} style={{
+                background: t.bg, borderRadius: 18, padding: '14px 16px',
+                border: `1.5px solid ${t.border}`,
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <div style={{
+                      width: 42, height: 42, borderRadius: 13, background: 'rgba(255,255,255,0.07)',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      color: C.text,
+                    }}>
+                      <DocIcon size={19} />
+                    </div>
                     <div>
-                      <p className="text-white font-semibold text-sm">{d.title}</p>
-                      <p className="text-xs text-muted">{typeInfo?.label}</p>
+                      <p style={{ fontWeight: 800, color: C.text, fontSize: 13, margin: 0 }}>{d.title}</p>
+                      <p style={{ fontSize: 11, color: C.muted, fontWeight: 500, margin: '3px 0 0' }}>{typeInfo?.label}</p>
                     </div>
                   </div>
-                  <button onClick={() => del(d.id)} className="text-muted hover:text-red-400 text-xs p-1 transition-colors">✕</button>
+                  <IconButton label="حذف مدرک" onClick={() => del(d.id)} size={28}><XIcon size={13} /></IconButton>
                 </div>
                 {(d.issueDate || d.expiryDate) && (
-                  <div className="flex gap-4 mt-3">
-                    {d.issueDate  && <div><p className="text-xs text-muted">صدور</p><p className="text-xs text-white">{d.issueDate}</p></div>}
+                  <div style={{ display: 'flex', gap: 20, marginTop: 12 }}>
+                    {d.issueDate && (
+                      <div>
+                        <p style={{ fontSize: 10, color: C.muted, fontWeight: 600, margin: 0 }}>تاریخ صدور</p>
+                        <p style={{ fontSize: 12, fontWeight: 600, color: C.text, margin: '3px 0 0' }}>{toJalali(d.issueDate)}</p>
+                      </div>
+                    )}
                     {d.expiryDate && (
                       <div>
-                        <p className="text-xs text-muted">انقضا</p>
-                        <p className={`text-xs font-medium ${s === 'expired' ? 'text-red-600' : s !== 'ok' ? 'text-orange-600' : 'text-emerald-600'}`}>
-                          {d.expiryDate}{days !== null ? ` (${days < 0 ? 'منقضی' : `${days} روز`})` : ''}
+                        <p style={{ fontSize: 10, color: C.muted, fontWeight: 600, margin: 0 }}>تاریخ انقضا</p>
+                        <p style={{ fontSize: 12, fontWeight: 800, color: t.color, margin: '3px 0 0' }}>
+                          {toJalali(d.expiryDate)}
+                          {days !== null && (
+                            <span style={{ fontSize: 10, fontWeight: 600, marginRight: 5 }}>
+                              ({days < 0 ? 'منقضی' : `${days} روز`})
+                            </span>
+                          )}
                         </p>
                       </div>
                     )}
                   </div>
                 )}
-                {d.notes && <p className="text-xs text-muted mt-2">{d.notes}</p>}
+                {d.notes && (
+                  <p style={{ fontSize: 11, color: C.muted, fontWeight: 500, marginTop: 8, lineHeight: 1.7 }}>
+                    {d.notes}
+                  </p>
+                )}
               </div>
             );
           })}
@@ -497,7 +1051,7 @@ function DocumentsTab({ vehicleId, vehicle, onRefresh }: { vehicleId: string; ve
   );
 }
 
-// ─── Reminders ─────────────────────────────────────────────────────────────────
+/* ─── Reminders ────────────────────────────────────────────────── */
 function RemindersTab({ vehicleId, currentMileage }: { vehicleId: string; currentMileage: number }) {
   const [reminders, setReminders] = useState<Reminder[]>([]);
   const [showAdd, setShowAdd]     = useState(false);
@@ -505,9 +1059,8 @@ function RemindersTab({ vehicleId, currentMileage }: { vehicleId: string; curren
 
   function load() { api.reminders.list(vehicleId).then(setReminders).finally(() => setLoading(false)); }
   useEffect(() => { load(); }, [vehicleId]);
-
   async function toggle(id: string) { await api.reminders.toggle(vehicleId, id); load(); }
-  async function del(id: string) { await api.reminders.remove(vehicleId, id); load(); }
+  async function del(id: string)    { await api.reminders.remove(vehicleId, id); load(); }
 
   const active    = reminders.filter(r => !r.isCompleted);
   const completed = reminders.filter(r =>  r.isCompleted);
@@ -519,60 +1072,131 @@ function RemindersTab({ vehicleId, currentMileage }: { vehicleId: string; curren
     return false;
   };
 
-  const priorityColors = { high: 'text-red-500', medium: 'text-amber-600', low: 'text-blue-600' };
+  const priorityMap = {
+    high:   { label: 'زیاد',  color: '#F87171', bg: 'rgba(239,68,68,0.10)' },
+    medium: { label: 'متوسط', color: '#FBBF24', bg: 'rgba(245,158,11,0.10)' },
+    low:    { label: 'کم',    color: '#60A5FA', bg: 'rgba(59,130,246,0.10)' },
+  };
 
   if (loading) return <Spinner />;
 
-  const ReminderRow = ({ r }: { r: Reminder }) => (
-    <div className={`glass rounded-xl p-4 flex items-start gap-3 ${r.isCompleted ? 'opacity-50' : ''} ${isOverdue(r) ? 'border-red-400/30' : ''}`}>
-      <button onClick={() => toggle(r.id)}
-        className={`w-5 h-5 rounded-full border-2 flex-shrink-0 mt-0.5 transition-colors ${r.isCompleted ? 'bg-green-400 border-green-400' : 'border-border hover:border-accent'}`}>
-        {r.isCompleted && <span className="flex items-center justify-center text-xs text-white">✓</span>}
-      </button>
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2">
-          <p className={`text-sm font-medium ${r.isCompleted ? 'line-through text-muted' : 'text-white'}`}>{r.title}</p>
-          <span className={`text-xs ${priorityColors[r.priority as keyof typeof priorityColors] || 'text-muted'}`}>●</span>
-          {isOverdue(r) && <span className="text-xs text-red-400 bg-red-400/10 px-1.5 py-0.5 rounded">سررسید گذشته</span>}
-        </div>
-        {r.description && <p className="text-xs text-muted mt-0.5">{r.description}</p>}
-        <div className="flex gap-3 mt-1.5">
-          {r.dueMileage && <span className="text-xs text-muted">📍 {r.dueMileage.toLocaleString()} km</span>}
-          {r.dueDate    && <span className="text-xs text-muted">📅 {r.dueDate}</span>}
-        </div>
-      </div>
-      <button onClick={() => del(r.id)} className="text-muted hover:text-red-400 text-xs p-1 transition-colors flex-shrink-0">✕</button>
-    </div>
-  );
-
-  return (
-    <div>
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="font-semibold text-white">یادآورها ({active.length} فعال)</h2>
-        <button onClick={() => setShowAdd(true)} className="bg-accent hover:bg-accent/90 text-white px-3 py-2 rounded-xl text-xs font-semibold transition-colors">+ یادآور جدید</button>
-      </div>
-
-      {active.length === 0 && completed.length === 0
-        ? <Empty icon="🔔" text="هنوز یادآوری ثبت نشده" />
-        : (
-          <div className="flex flex-col gap-2">
-            {active.map(r => <ReminderRow key={r.id} r={r} />)}
-            {completed.length > 0 && (
-              <>
-                <p className="text-xs text-muted mt-3 mb-1">انجام شده</p>
-                {completed.map(r => <ReminderRow key={r.id} r={r} />)}
-              </>
+  const ReminderRow = ({ r }: { r: Reminder }) => {
+    const overdue = isOverdue(r);
+    const p = priorityMap[r.priority as keyof typeof priorityMap] || priorityMap.medium;
+    return (
+      <div style={{
+        background: C.surface, borderRadius: 18,
+        padding: '14px 16px',
+        opacity: r.isCompleted ? 0.55 : 1,
+        border: overdue ? '1.5px solid rgba(239,68,68,0.25)' : `1px solid ${C.border}`,
+        display: 'flex', alignItems: 'flex-start', gap: 12,
+        transition: 'opacity 0.2s',
+      }}>
+        <button
+          onClick={() => toggle(r.id)}
+          aria-label={r.isCompleted ? 'علامت‌گذاری به‌عنوان انجام‌نشده' : 'علامت‌گذاری به‌عنوان انجام‌شده'}
+          style={{
+            width: 26, height: 26, borderRadius: '50%',
+            border: `2px solid ${r.isCompleted ? C.green : '#7C8BA3'}`,
+            background: r.isCompleted ? `linear-gradient(135deg, ${C.green}, ${C.greenDark})` : 'transparent',
+            flexShrink: 0, marginTop: 1,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            color: 'white',
+            transition: 'all 0.2s',
+            boxShadow: r.isCompleted ? `0 2px 8px ${C.greenGlow}` : 'none',
+          }}
+        >
+          {r.isCompleted && <CheckIcon size={13} />}
+        </button>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+            <p style={{
+              fontSize: 13, fontWeight: 800, margin: 0, color: C.text,
+              textDecoration: r.isCompleted ? 'line-through' : 'none',
+            }}>
+              {r.title}
+            </p>
+            <span style={{ fontSize: 10, fontWeight: 700, color: p.color, background: p.bg, padding: '1px 8px', borderRadius: 7 }}>
+              {p.label}
+            </span>
+            {overdue && (
+              <span style={{
+                display: 'flex', alignItems: 'center', gap: 3,
+                fontSize: 10, fontWeight: 700, color: '#F87171',
+                background: 'rgba(239,68,68,0.10)', padding: '1px 8px', borderRadius: 7,
+                border: '1px solid rgba(239,68,68,0.22)',
+              }}><AlertTriangleIcon size={10} /> سررسید</span>
             )}
           </div>
-        )
-      }
+          {r.description && (
+            <p style={{ fontSize: 11, color: C.muted, fontWeight: 500, margin: '4px 0 0', lineHeight: 1.7 }}>
+              {r.description}
+            </p>
+          )}
+          <div style={{ display: 'flex', gap: 14, marginTop: 7 }}>
+            {r.dueMileage && (
+              <span style={{ fontSize: 11, color: C.muted, fontWeight: 500, display: 'flex', alignItems: 'center', gap: 3 }}>
+                <PinIcon size={12} /> {r.dueMileage.toLocaleString()} km
+              </span>
+            )}
+            {r.dueDate && (
+              <span style={{ fontSize: 11, color: C.muted, fontWeight: 500, display: 'flex', alignItems: 'center', gap: 3 }}>
+                <CalendarIcon size={12} /> {toJalali(r.dueDate)}
+              </span>
+            )}
+          </div>
+        </div>
+        <IconButton label="حذف یادآور" onClick={() => del(r.id)} size={28}><XIcon size={13} /></IconButton>
+      </div>
+    );
+  };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12, animation: 'fadeInUp 0.35s ease both' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '2px 2px' }}>
+        <h2 style={{ fontSize: 16, fontWeight: 800, color: C.text, margin: 0 }}>
+          یادآورها
+          {active.length > 0 && (
+            <span style={{
+              fontSize: 11, fontWeight: 800, color: C.green,
+              background: `${C.green}15`, border: `1px solid ${C.green}30`,
+              padding: '2px 9px', borderRadius: 10, marginRight: 7,
+            }}>
+              {active.length} فعال
+            </span>
+          )}
+        </h2>
+        <Button size="sm" onClick={() => setShowAdd(true)} icon={<PlusIcon size={15} />}>یادآور جدید</Button>
+      </div>
+
+      {active.length === 0 && completed.length === 0 ? (
+        <EmptyState icon={<BellIcon size={26} />} title="هنوز یادآوری ثبت نشده"
+          sub="تعویض روغن، بیمه و سرویس‌های بعدی رو یادآور کن"
+          onAdd={() => setShowAdd(true)} btnLabel="ثبت یادآور" />
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
+          {active.map(r => <ReminderRow key={r.id} r={r} />)}
+          {completed.length > 0 && (
+            <>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '6px 0 2px', padding: '0 4px' }}>
+                <div style={{ flex: 1, height: 1, background: C.border }} />
+                <span style={{ fontSize: 11, color: C.muted, fontWeight: 600, whiteSpace: 'nowrap' }}>
+                  انجام شده ({completed.length})
+                </span>
+                <div style={{ flex: 1, height: 1, background: C.border }} />
+              </div>
+              {completed.map(r => <ReminderRow key={r.id} r={r} />)}
+            </>
+          )}
+        </div>
+      )}
 
       {showAdd && <AddReminderModal vehicleId={vehicleId} onClose={() => setShowAdd(false)} onSaved={load} />}
     </div>
   );
 }
 
-// ─── AI ────────────────────────────────────────────────────────────────────────
+/* ─── AI ───────────────────────────────────────────────────────── */
 function AiTab({ vehicleId }: { vehicleId: string }) {
   const [messages, setMessages] = useState<{ role: 'user' | 'ai'; text: string }[]>([]);
   const [input, setInput]       = useState('');
@@ -597,20 +1221,46 @@ function AiTab({ vehicleId }: { vehicleId: string }) {
     }
   }
 
-  const suggestions = ['کِی باید روغن موتور عوض کنم؟', 'وضعیت کلی ماشینم چطوره؟', 'آخرین سرویس چه بود؟', 'هزینه تعمیرات من چقدره؟'];
+  const suggestions = [
+    'کِی باید روغن موتور عوض کنم؟',
+    'وضعیت کلی ماشینم چطوره؟',
+    'آخرین سرویس چه بود؟',
+    'هزینه تعمیرات من چقدره؟',
+  ];
 
   return (
-    <div className="flex flex-col" style={{ height: 480 }}>
-      <div className="flex-1 overflow-y-auto flex flex-col gap-3 pb-3">
+    <div style={{ display: 'flex', flexDirection: 'column', height: 500, animation: 'fadeInUp 0.35s ease both' }}>
+      <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 10, paddingBottom: 12 }}>
         {messages.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full gap-4">
-            <div className="text-5xl">🤖</div>
-            <p className="text-white font-semibold">دستیار هوشمند خودرو</p>
-            <p className="text-muted text-sm text-center">هر سوالی درباره ماشینت داری بپرس</p>
-            <div className="flex flex-col gap-2 w-full max-w-xs mt-2">
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: 18 }}>
+            <div style={{
+              width: 74, height: 74, borderRadius: '50%',
+              background: `linear-gradient(135deg, ${C.green} 0%, ${C.blue} 100%)`,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              color: 'white',
+              boxShadow: `0 12px 36px ${C.greenGlow}`,
+              animation: 'float 3s ease-in-out infinite',
+            }}><SparklesIcon size={32} /></div>
+            <div style={{ textAlign: 'center' }}>
+              <p style={{ fontWeight: 900, color: C.text, fontSize: 17, margin: '0 0 6px' }}>
+                دستیار هوشمند خودرو
+              </p>
+              <p style={{ color: C.muted, fontSize: 13, fontWeight: 500 }}>
+                هر سوالی درباره ماشینت داری بپرس
+              </p>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, width: '100%', maxWidth: 340 }}>
               {suggestions.map(s => (
-                <button key={s} onClick={() => setInput(s)}
-                  className="text-xs text-right text-muted hover:text-white border border-border hover:border-accent/50 rounded-xl px-3 py-2 transition-colors">
+                <button key={s} onClick={() => setInput(s)} style={{
+                  background: C.surface,
+                  border: `1px solid ${C.border}`,
+                  borderRadius: 14,
+                  padding: '11px 16px',
+                  textAlign: 'right',
+                  fontSize: 12.5, fontWeight: 500,
+                  color: C.muted,
+                  fontFamily: 'Vazirmatn, sans-serif',
+                }}>
                   {s}
                 </button>
               ))}
@@ -618,92 +1268,144 @@ function AiTab({ vehicleId }: { vehicleId: string }) {
           </div>
         ) : (
           messages.map((m, i) => (
-            <div key={i} className={`flex ${m.role === 'user' ? 'justify-start' : 'justify-end'}`}>
-              <div className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${
-                m.role === 'user' ? 'bg-accent/20 border border-accent/30 text-white' : 'bg-card border border-border text-white'
-              }`}>{m.text}</div>
+            <div key={i} style={{ display: 'flex', justifyContent: m.role === 'user' ? 'flex-start' : 'flex-end' }}>
+              <div style={{
+                maxWidth: '86%',
+                borderRadius: m.role === 'user' ? '18px 18px 18px 4px' : '18px 18px 4px 18px',
+                padding: '12px 16px', fontSize: 13, fontWeight: 500, lineHeight: 1.8,
+                background: m.role === 'user' ? `${C.green}18` : C.surface,
+                border: `1px solid ${m.role === 'user' ? C.green + '25' : C.border}`,
+                color: C.text,
+                animation: 'fadeInUp 0.2s ease both',
+              }}>
+                {m.text}
+              </div>
             </div>
           ))
         )}
         {loading && (
-          <div className="flex justify-end">
-            <div className="glass rounded-2xl px-4 py-3 flex gap-1.5 items-center">
-              {[0,1,2].map(i => <span key={i} className="w-1.5 h-1.5 rounded-full bg-accent animate-bounce" style={{ animationDelay: `${i * 0.15}s` }} />)}
+          <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+            <div style={{
+              background: C.surface,
+              border: `1px solid ${C.border}`,
+              borderRadius: '18px 18px 4px 18px',
+              padding: '14px 18px',
+              display: 'flex', gap: 5, alignItems: 'center',
+            }}>
+              {[0, 1, 2].map(i => (
+                <span key={i} style={{
+                  width: 7, height: 7, borderRadius: '50%',
+                  background: C.green,
+                  display: 'inline-block',
+                  animation: 'bounce 1s infinite',
+                  animationDelay: `${i * 0.18}s`,
+                }} />
+              ))}
             </div>
           </div>
         )}
         <div ref={bottomRef} />
       </div>
 
-      <div className="flex gap-2 pt-3 border-t border-border">
-        <input value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && send()}
+      <div style={{ display: 'flex', gap: 8, paddingTop: 12, borderTop: `1px solid ${C.border}` }}>
+        <Input
+          value={input}
+          onChange={e => setInput(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && send()}
           placeholder="سوالت رو بنویس..."
-          className="flex-1 bg-surface border border-border rounded-xl px-4 py-2.5 text-sm outline-none focus:border-accent transition-colors placeholder:text-muted/50"
+          style={{ borderRadius: 16 }}
         />
-        <button onClick={send} disabled={loading || !input.trim()}
-          className="bg-accent hover:bg-accent/90 text-white px-4 py-2.5 rounded-xl text-sm font-semibold disabled:opacity-50 transition-colors">
+        <Button onClick={send} disabled={!input.trim()} loading={loading} style={{ flexShrink: 0 }}>
           ارسال
-        </button>
+        </Button>
       </div>
     </div>
   );
 }
 
-// ─── Modals ────────────────────────────────────────────────────────────────────
-function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
-  return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={e => e.target === e.currentTarget && onClose()}>
-      <div className="glass rounded-2xl w-full max-w-md max-h-[90vh] overflow-y-auto">
-        <div className="p-5">
-          <div className="flex items-center justify-between mb-5">
-            <h2 className="font-bold text-white">{title}</h2>
-            <button onClick={onClose} className="text-muted hover:text-white transition-colors w-7 h-7 rounded-lg hover:bg-white/5 flex items-center justify-center">✕</button>
-          </div>
-          {children}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function F({ label, children }: { label: string; children: React.ReactNode }) {
-  return <div><label className="text-xs text-muted mb-1.5 block">{label}</label>{children}</div>;
-}
-
-const inputCls = "w-full bg-surface border border-border rounded-xl px-4 py-2.5 text-sm outline-none focus:border-accent transition-colors placeholder:text-muted/50";
-
+/* ─── Modals ───────────────────────────────────────────────────── */
 function AddServiceModal({ vehicleId, onClose, onSaved }: { vehicleId: string; onClose: () => void; onSaved: () => void }) {
-  const [f, setF] = useState({ serviceType: SERVICE_TYPES[0], serviceDate: today(), mileage: '', description: '', cost: '', workshop: '', nextServiceMileage: '', nextServiceDate: '' });
+  const [f, setF] = useState({
+    serviceType: SERVICE_TYPES[0], serviceDate: today(), mileage: '',
+    description: '', cost: '', workshop: '', nextServiceMileage: '', nextServiceDate: '',
+  });
   const [loading, setLoading] = useState(false);
   const set = (k: string, v: string) => setF(p => ({ ...p, [k]: v }));
 
   async function submit(e: React.FormEvent) {
     e.preventDefault(); setLoading(true);
-    await api.records.create(vehicleId, { serviceType: f.serviceType, serviceDate: f.serviceDate, mileage: n(f.mileage), cost: n(f.cost), nextServiceMileage: n(f.nextServiceMileage), description: f.description || undefined, workshop: f.workshop || undefined, nextServiceDate: f.nextServiceDate || undefined });
+    await api.records.create(vehicleId, {
+      serviceType: f.serviceType, serviceDate: f.serviceDate, mileage: n(f.mileage),
+      cost: n(f.cost), nextServiceMileage: n(f.nextServiceMileage),
+      description: f.description || undefined, workshop: f.workshop || undefined,
+      nextServiceDate: f.nextServiceDate || undefined,
+    });
     onSaved(); onClose();
   }
+
   return (
-    <Modal title="ثبت سرویس" onClose={onClose}>
-      <form onSubmit={submit} className="flex flex-col gap-3">
-        <F label="نوع سرویس"><select value={f.serviceType} onChange={e => set('serviceType', e.target.value)} className={inputCls}>{SERVICE_TYPES.map(t => <option key={t}>{t}</option>)}</select></F>
-        <div className="grid grid-cols-2 gap-3">
-          <F label="تاریخ"><input value={f.serviceDate} onChange={e => set('serviceDate', e.target.value)} type="date" className={inputCls} required /></F>
-          <F label="کارکرد (km)"><input value={f.mileage} onChange={e => set('mileage', e.target.value)} type="number" className={inputCls} /></F>
+    <Sheet title="ثبت سرویس جدید" icon={<WrenchIcon size={17} />} onClose={onClose}>
+      <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <FormField label="نوع سرویس">
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
+            {SERVICE_TYPES.map(type => {
+              const meta     = svcMeta(type);
+              const Icon     = meta.icon;
+              const selected = f.serviceType === type;
+              return (
+                <button
+                  key={type} type="button" onClick={() => set('serviceType', type)}
+                  style={{
+                    background: selected ? `${meta.color}1F` : 'rgba(255,255,255,0.04)',
+                    border: `2px solid ${selected ? meta.color : 'transparent'}`,
+                    borderRadius: 14, padding: '10px 6px',
+                    display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6,
+                    color: selected ? meta.color : C.muted,
+                  }}
+                >
+                  <Icon size={20} />
+                  <span style={{
+                    fontSize: 10, textAlign: 'center', lineHeight: 1.4,
+                    fontWeight: selected ? 800 : 500,
+                    color: selected ? meta.color : C.muted,
+                    fontFamily: 'Vazirmatn, sans-serif',
+                  }}>{type}</span>
+                </button>
+              );
+            })}
+          </div>
+        </FormField>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <FormField label="تاریخ سرویس">
+            <PersianDatePicker value={f.serviceDate} onChange={v => set('serviceDate', v)} />
+          </FormField>
+          <FormField label="کارکرد (km)">
+            <Input value={f.mileage} onChange={e => set('mileage', e.target.value)} type="number" />
+          </FormField>
         </div>
-        <F label="توضیحات"><input value={f.description} onChange={e => set('description', e.target.value)} placeholder="جزئیات..." className={inputCls} /></F>
-        <div className="grid grid-cols-2 gap-3">
-          <F label="هزینه (تومان)"><input value={f.cost} onChange={e => set('cost', e.target.value)} type="number" className={inputCls} /></F>
-          <F label="تعمیرگاه"><input value={f.workshop} onChange={e => set('workshop', e.target.value)} className={inputCls} /></F>
+        <FormField label="توضیحات">
+          <Input value={f.description} onChange={e => set('description', e.target.value)} placeholder="جزئیات سرویس..." />
+        </FormField>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <FormField label="هزینه (تومان)">
+            <Input value={f.cost} onChange={e => set('cost', e.target.value)} type="number" />
+          </FormField>
+          <FormField label="تعمیرگاه">
+            <Input value={f.workshop} onChange={e => set('workshop', e.target.value)} />
+          </FormField>
         </div>
-        <div className="grid grid-cols-2 gap-3">
-          <F label="سرویس بعدی (km)"><input value={f.nextServiceMileage} onChange={e => set('nextServiceMileage', e.target.value)} type="number" className={inputCls} /></F>
-          <F label="تاریخ سرویس بعدی"><input value={f.nextServiceDate} onChange={e => set('nextServiceDate', e.target.value)} type="date" className={inputCls} /></F>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <FormField label="سرویس بعدی (km)">
+            <Input value={f.nextServiceMileage} onChange={e => set('nextServiceMileage', e.target.value)} type="number" />
+          </FormField>
+          <FormField label="تاریخ سرویس بعدی">
+            <PersianDatePicker value={f.nextServiceDate} onChange={v => set('nextServiceDate', v)} />
+          </FormField>
         </div>
-        <button type="submit" disabled={loading} className="bg-accent hover:bg-accent/90 text-white rounded-xl py-3 text-sm font-semibold disabled:opacity-50 mt-1 transition-colors">
-          {loading ? 'در حال ذخیره...' : 'ثبت سرویس'}
-        </button>
+        <Button type="submit" loading={loading} fullWidth size="lg" icon={<CheckIcon size={16} />}>ثبت سرویس</Button>
       </form>
-    </Modal>
+    </Sheet>
   );
 }
 
@@ -714,30 +1416,52 @@ function AddFuelModal({ vehicleId, onClose, onSaved }: { vehicleId: string; onCl
 
   async function submit(e: React.FormEvent) {
     e.preventDefault(); setLoading(true);
-    await api.fuel.create(vehicleId, { date: f.date, liters: Number(f.liters), cost: n(f.cost), mileage: n(f.mileage) || 0, isFullTank: f.isFullTank, station: f.station || undefined, notes: f.notes || undefined });
+    await api.fuel.create(vehicleId, {
+      date: f.date, liters: Number(f.liters), cost: n(f.cost),
+      mileage: n(f.mileage) || 0, isFullTank: f.isFullTank,
+      station: f.station || undefined, notes: f.notes || undefined,
+    });
     onSaved(); onClose();
   }
+
   return (
-    <Modal title="ثبت سوخت" onClose={onClose}>
-      <form onSubmit={submit} className="flex flex-col gap-3">
-        <div className="grid grid-cols-2 gap-3">
-          <F label="تاریخ"><input value={f.date} onChange={e => set('date', e.target.value)} type="date" className={inputCls} required /></F>
-          <F label="لیتر"><input value={f.liters} onChange={e => set('liters', e.target.value)} type="number" step="0.1" className={inputCls} required /></F>
+    <Sheet title="ثبت سوخت" icon={<FuelIcon size={17} />} onClose={onClose}>
+      <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <FormField label="تاریخ">
+            <PersianDatePicker value={f.date} onChange={v => set('date', v)} />
+          </FormField>
+          <FormField label="لیتر">
+            <Input value={f.liters} onChange={e => set('liters', e.target.value)} type="number" step="0.1" required />
+          </FormField>
         </div>
-        <div className="grid grid-cols-2 gap-3">
-          <F label="هزینه (تومان)"><input value={f.cost} onChange={e => set('cost', e.target.value)} type="number" className={inputCls} /></F>
-          <F label="کارکرد (km)"><input value={f.mileage} onChange={e => set('mileage', e.target.value)} type="number" className={inputCls} /></F>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <FormField label="هزینه (تومان)">
+            <Input value={f.cost} onChange={e => set('cost', e.target.value)} type="number" />
+          </FormField>
+          <FormField label="کارکرد (km)">
+            <Input value={f.mileage} onChange={e => set('mileage', e.target.value)} type="number" />
+          </FormField>
         </div>
-        <F label="جایگاه سوخت"><input value={f.station} onChange={e => set('station', e.target.value)} className={inputCls} /></F>
-        <label className="flex items-center gap-2 cursor-pointer">
-          <input type="checkbox" checked={f.isFullTank} onChange={e => set('isFullTank', e.target.checked)} className="w-4 h-4 rounded accent-accent" />
-          <span className="text-sm text-white">باک کامل پر شد</span>
+        <FormField label="جایگاه سوخت">
+          <Input value={f.station} onChange={e => set('station', e.target.value)} placeholder="اختیاری" />
+        </FormField>
+        <label style={{
+          display: 'flex', alignItems: 'center', gap: 12,
+          cursor: 'pointer', padding: '12px 14px',
+          background: 'rgba(255,255,255,0.04)', borderRadius: 14,
+          border: `1px solid ${C.border}`,
+        }}>
+          <input
+            type="checkbox" checked={f.isFullTank}
+            onChange={e => set('isFullTank', e.target.checked)}
+            style={{ width: 17, height: 17, accentColor: C.green }}
+          />
+          <span style={{ fontSize: 13, fontWeight: 600, color: C.text }}>باک کامل پر شد</span>
         </label>
-        <button type="submit" disabled={loading} className="bg-accent hover:bg-accent/90 text-white rounded-xl py-3 text-sm font-semibold disabled:opacity-50 mt-1 transition-colors">
-          {loading ? 'در حال ذخیره...' : 'ثبت سوخت'}
-        </button>
+        <Button type="submit" loading={loading} fullWidth size="lg" icon={<CheckIcon size={16} />}>ثبت سوخت</Button>
       </form>
-    </Modal>
+    </Sheet>
   );
 }
 
@@ -748,33 +1472,55 @@ function AddDocModal({ vehicleId, onClose, onSaved }: { vehicleId: string; onClo
 
   async function submit(e: React.FormEvent) {
     e.preventDefault(); setLoading(true);
-    await api.documents.create(vehicleId, { type: f.type as any, title: f.title, issueDate: f.issueDate || undefined, expiryDate: f.expiryDate || undefined, notes: f.notes || undefined });
+    await api.documents.create(vehicleId, {
+      type: f.type as any, title: f.title,
+      issueDate: f.issueDate || undefined, expiryDate: f.expiryDate || undefined,
+      notes: f.notes || undefined,
+    });
     onSaved(); onClose();
   }
+
   return (
-    <Modal title="افزودن مدرک" onClose={onClose}>
-      <form onSubmit={submit} className="flex flex-col gap-3">
-        <F label="نوع مدرک">
-          <div className="grid grid-cols-2 gap-2">
-            {DOC_TYPES.map(t => (
-              <button key={t.value} type="button" onClick={() => set('type', t.value)}
-                className={`flex items-center gap-2 px-3 py-2 rounded-xl border text-xs transition-colors ${f.type === t.value ? 'border-accent bg-accent/20 text-white' : 'border-border text-muted hover:text-white'}`}>
-                <span>{t.icon}</span> {t.label}
-              </button>
-            ))}
+    <Sheet title="افزودن مدرک" icon={<FileTextIcon size={17} />} onClose={onClose}>
+      <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <FormField label="نوع مدرک">
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 9 }}>
+            {DOC_TYPES.map(t => {
+              const DocIcon = DOC_ICONS[t.value] ?? PaperclipIcon;
+              const selected = f.type === t.value;
+              return (
+                <button key={t.value} type="button" onClick={() => set('type', t.value)} style={{
+                  display: 'flex', alignItems: 'center', gap: 9, padding: '11px 14px',
+                  borderRadius: 14,
+                  border: `2px solid ${selected ? C.green : 'transparent'}`,
+                  background: selected ? `${C.green}1F` : 'rgba(255,255,255,0.04)',
+                  color: selected ? C.text : C.muted,
+                  fontSize: 12.5, fontWeight: selected ? 700 : 500,
+                  fontFamily: 'Vazirmatn, sans-serif',
+                }}>
+                  <DocIcon size={17} /> {t.label}
+                </button>
+              );
+            })}
           </div>
-        </F>
-        <F label="عنوان"><input value={f.title} onChange={e => set('title', e.target.value)} placeholder="مثلاً: بیمه ایران" className={inputCls} required /></F>
-        <div className="grid grid-cols-2 gap-3">
-          <F label="تاریخ صدور"><input value={f.issueDate} onChange={e => set('issueDate', e.target.value)} type="date" className={inputCls} /></F>
-          <F label="تاریخ انقضا"><input value={f.expiryDate} onChange={e => set('expiryDate', e.target.value)} type="date" className={inputCls} /></F>
+        </FormField>
+        <FormField label="عنوان">
+          <Input value={f.title} onChange={e => set('title', e.target.value)} placeholder="مثلاً: بیمه ایران" required />
+        </FormField>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <FormField label="تاریخ صدور">
+            <PersianDatePicker value={f.issueDate} onChange={v => set('issueDate', v)} />
+          </FormField>
+          <FormField label="تاریخ انقضا">
+            <PersianDatePicker value={f.expiryDate} onChange={v => set('expiryDate', v)} />
+          </FormField>
         </div>
-        <F label="یادداشت"><input value={f.notes} onChange={e => set('notes', e.target.value)} className={inputCls} /></F>
-        <button type="submit" disabled={loading} className="bg-accent hover:bg-accent/90 text-white rounded-xl py-3 text-sm font-semibold disabled:opacity-50 mt-1 transition-colors">
-          {loading ? 'در حال ذخیره...' : 'ثبت مدرک'}
-        </button>
+        <FormField label="یادداشت">
+          <Input value={f.notes} onChange={e => set('notes', e.target.value)} />
+        </FormField>
+        <Button type="submit" loading={loading} fullWidth size="lg" icon={<CheckIcon size={16} />}>ثبت مدرک</Button>
       </form>
-    </Modal>
+    </Sheet>
   );
 }
 
@@ -785,45 +1531,60 @@ function AddReminderModal({ vehicleId, onClose, onSaved }: { vehicleId: string; 
 
   async function submit(e: React.FormEvent) {
     e.preventDefault(); setLoading(true);
-    await api.reminders.create(vehicleId, { title: f.title, description: f.description || undefined, dueMileage: n(f.dueMileage), dueDate: f.dueDate || undefined, priority: f.priority });
+    await api.reminders.create(vehicleId, {
+      title: f.title, description: f.description || undefined,
+      dueMileage: n(f.dueMileage), dueDate: f.dueDate || undefined, priority: f.priority,
+    });
     onSaved(); onClose();
   }
+
+  const priorities = [
+    { v: 'low',    l: 'کم',    color: '#60A5FA' },
+    { v: 'medium', l: 'متوسط', color: '#FBBF24' },
+    { v: 'high',   l: 'زیاد',  color: '#F87171' },
+  ];
+
   return (
-    <Modal title="یادآور جدید" onClose={onClose}>
-      <form onSubmit={submit} className="flex flex-col gap-3">
-        <F label="عنوان"><input value={f.title} onChange={e => set('title', e.target.value)} placeholder="مثلاً: تعویض روغن" className={inputCls} required /></F>
-        <F label="توضیحات"><input value={f.description} onChange={e => set('description', e.target.value)} className={inputCls} /></F>
-        <div className="grid grid-cols-2 gap-3">
-          <F label="کارکرد موعد (km)"><input value={f.dueMileage} onChange={e => set('dueMileage', e.target.value)} type="number" className={inputCls} /></F>
-          <F label="تاریخ موعد"><input value={f.dueDate} onChange={e => set('dueDate', e.target.value)} type="date" className={inputCls} /></F>
+    <Sheet title="یادآور جدید" icon={<BellIcon size={17} />} onClose={onClose}>
+      <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <FormField label="عنوان">
+          <Input value={f.title} onChange={e => set('title', e.target.value)} placeholder="مثلاً: تعویض روغن" required />
+        </FormField>
+        <FormField label="توضیحات">
+          <Input value={f.description} onChange={e => set('description', e.target.value)} />
+        </FormField>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <FormField label="کارکرد موعد (km)">
+            <Input value={f.dueMileage} onChange={e => set('dueMileage', e.target.value)} type="number" />
+          </FormField>
+          <FormField label="تاریخ موعد">
+            <PersianDatePicker value={f.dueDate} onChange={v => set('dueDate', v)} />
+          </FormField>
         </div>
-        <F label="اولویت">
-          <div className="flex gap-2">
-            {[{ v: 'low', l: 'کم', c: 'text-blue-400' }, { v: 'medium', l: 'متوسط', c: 'text-yellow-400' }, { v: 'high', l: 'زیاد', c: 'text-red-400' }].map(p => (
-              <button key={p.v} type="button" onClick={() => set('priority', p.v)}
-                className={`flex-1 py-2 rounded-xl border text-xs font-medium transition-colors ${f.priority === p.v ? 'border-accent bg-accent/20 text-white' : `border-border ${p.c} opacity-60 hover:opacity-100`}`}>
-                {p.l}
+        <FormField label="اولویت">
+          <div style={{ display: 'flex', gap: 8 }}>
+            {priorities.map(p => (
+              <button key={p.v} type="button" onClick={() => set('priority', p.v)} style={{
+                flex: 1, padding: '11px 8px', borderRadius: 14,
+                border: `2px solid ${f.priority === p.v ? p.color : 'transparent'}`,
+                background: f.priority === p.v ? `${p.color}1F` : C.surface2,
+                display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5,
+              }}>
+                <CircleIcon size={16} color={p.color} />
+                <span style={{
+                  fontSize: 11, fontWeight: f.priority === p.v ? 800 : 500,
+                  color: f.priority === p.v ? p.color : C.muted,
+                  fontFamily: 'Vazirmatn, sans-serif',
+                }}>{p.l}</span>
               </button>
             ))}
           </div>
-        </F>
-        <button type="submit" disabled={loading} className="bg-accent hover:bg-accent/90 text-white rounded-xl py-3 text-sm font-semibold disabled:opacity-50 mt-1 transition-colors">
-          {loading ? 'در حال ذخیره...' : 'ثبت یادآور'}
-        </button>
+        </FormField>
+        <Button type="submit" loading={loading} fullWidth size="lg" icon={<CheckIcon size={16} />}>ثبت یادآور</Button>
       </form>
-    </Modal>
+    </Sheet>
   );
 }
 
-// ─── Helpers ───────────────────────────────────────────────────────────────────
-function Empty({ icon, text }: { icon: string; text: string }) {
-  return <div className="text-center py-16 glass rounded-2xl"><p className="text-4xl mb-3">{icon}</p><p className="text-muted text-sm">{text}</p></div>;
-}
-function StatCard({ label, value, sub }: { label: string; value: string; sub?: string }) {
-  return <div className="glass rounded-xl p-4 text-center"><p className="text-lg font-bold text-white">{value}<span className="text-xs text-muted ml-1">{sub}</span></p><p className="text-xs text-muted mt-0.5">{label}</p></div>;
-}
-function Spinner() {
-  return <div className="flex justify-center py-16"><div className="w-6 h-6 rounded-full border-2 border-border border-t-accent animate-spin" /></div>;
-}
 function today() { return new Date().toISOString().slice(0, 10); }
 function n(v: string): number | undefined { return v ? Number(v) : undefined; }

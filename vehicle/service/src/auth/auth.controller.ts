@@ -1,13 +1,25 @@
 import { Controller, Post, Body } from '@nestjs/common';
-import { IsString, IsMobilePhone } from 'class-validator';
+import { IsString, IsMobilePhone, IsOptional, IsIn, ValidateIf } from 'class-validator';
 import { AuthService } from './auth.service';
 
-class RegisterDto {
+export class RegisterDto {
   @IsMobilePhone('fa-IR')
   phone: string;
 
   @IsString()
   name: string;
+
+  @IsOptional()
+  @IsIn(['owner', 'mechanic'])
+  role?: 'owner' | 'mechanic';
+
+  @ValidateIf((o) => o.role === 'mechanic')
+  @IsString()
+  workshopName?: string;
+
+  @IsOptional()
+  @IsString()
+  workshopAddress?: string;
 }
 
 class LoginDto {
@@ -21,7 +33,7 @@ export class AuthController {
 
   @Post('register')
   register(@Body() dto: RegisterDto) {
-    return this.auth.register(dto.phone, dto.name);
+    return this.auth.register(dto);
   }
 
   @Post('login')

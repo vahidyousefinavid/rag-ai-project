@@ -27,7 +27,7 @@ export class ServiceRecordsController {
 
   @Post()
   create(@Param('vehicleId') vehicleId: string, @Body() dto: CreateServiceRecordDto, @Request() req) {
-    return this.svc.create(vehicleId, req.user.id, dto);
+    return this.svc.create(vehicleId, req.user.id, req.user.role, dto);
   }
 
   @Delete(':id')

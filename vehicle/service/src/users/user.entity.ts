@@ -12,6 +12,15 @@ export class User {
   @Column()
   name: string;
 
+  @Column({ default: 'owner' })
+  role: 'owner' | 'mechanic';
+
+  @Column({ nullable: true })
+  workshopName: string;
+
+  @Column({ nullable: true })
+  workshopAddress: string;
+
   @CreateDateColumn()
   createdAt: Date;
 

@@ -1,5 +1,7 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, ManyToOne, JoinColumn } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, ManyToOne, OneToOne, JoinColumn } from 'typeorm';
 import { Vehicle } from '../vehicles/vehicle.entity';
+import { User } from '../users/user.entity';
+import { Invoice } from '../invoices/invoice.entity';
 
 @Entity('service_records')
 export class ServiceRecord {
@@ -36,6 +38,19 @@ export class ServiceRecord {
 
   @Column({ nullable: true })
   nextServiceDate: string;
+
+  @Column({ nullable: true })
+  createdByUserId: string;
+
+  @ManyToOne(() => User, { onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'createdByUserId' })
+  createdBy: User;
+
+  @Column({ nullable: true })
+  createdByRole: 'owner' | 'mechanic';
+
+  @OneToOne(() => Invoice, (i) => i.serviceRecord)
+  invoice: Invoice;
 
   @CreateDateColumn()
   createdAt: Date;

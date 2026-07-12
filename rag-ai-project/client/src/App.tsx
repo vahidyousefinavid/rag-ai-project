@@ -4,10 +4,11 @@ import SessionSidebar from './components/SessionSidebar'
 import ChatLayout from './components/ChatLayout'
 import TasksPage from './pages/TasksPage'
 import VaultPage from './pages/VaultPage'
+import RagPage from './pages/RagPage'
 import { useLanguage } from './i18n/LanguageContext'
 import './index.css'
 
-type View = 'chat' | 'tasks' | 'vault'
+type View = 'chat' | 'tasks' | 'vault' | 'rag'
 
 export default function App() {
   const [view, setView] = useState<View>('chat')
@@ -27,7 +28,7 @@ export default function App() {
         className="flex items-center gap-1 px-3 py-1.5 flex-shrink-0"
         dir="ltr"
       >
-        {(['chat', 'tasks', 'vault'] as View[]).map(v => (
+        {(['chat', 'tasks', 'vault', 'rag'] as View[]).map(v => (
           <button
             key={v}
             onClick={() => setView(v)}
@@ -38,13 +39,13 @@ export default function App() {
             }}
             className="px-3 py-1 rounded-lg text-xs font-medium transition-colors hover:text-white"
           >
-            {v === 'chat' ? t.navChat : v === 'tasks' ? t.navTasks : t.navVault}
+            {v === 'chat' ? t.navChat : v === 'tasks' ? t.navTasks : v === 'vault' ? t.navVault : t.navRag}
           </button>
         ))}
       </nav>
 
       {/* Page content */}
-      <div className="flex flex-1 min-h-0">
+      <div className="flex flex-1 min-h-0 w-full">
         {view === 'chat' ? (
           <>
             <SessionSidebar
@@ -67,8 +68,10 @@ export default function App() {
           </>
         ) : view === 'tasks' ? (
           <TasksPage />
-        ) : (
+        ) : view === 'vault' ? (
           <VaultPage />
+        ) : (
+          <RagPage />
         )}
       </div>
     </div>

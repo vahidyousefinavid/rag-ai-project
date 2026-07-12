@@ -148,20 +148,39 @@ export class VectorService {
     query: string,
     limit = 8,
     scoreThreshold = 0.5,
+    sourceId?: string,
   ): Promise<{ content: string; score: number; metadata: any }[]> {
     const vector = await this.embed(query);
-    const results = await this.client.search(this.collectionName, {
-      vector,
-      limit,
-      with_payload: true,
-      score_threshold: scoreThreshold,
-    });
+
+    const params: Parameters<typeof this.client.search>[1] = {
+      vector, limit, with_payload: true, score_threshold: scoreThreshold,
+    };
+    if (sourceId) {
+      (params as any).filter = {
+        must: [{ key: 'metadata.sourceId', match: { value: sourceId } }],
+      };
+    }
+
+    const results = await this.client.search(this.collectionName, params);
 
     return results.map((r) => ({
       content: (r.payload?.['content'] as string) ?? '',
       score: r.score,
       metadata: r.payload?.['metadata'] ?? {},
     }));
+  }
+
+  async deleteBySource(sourceId: string): Promise<void> {
+    try {
+      await this.client.delete(this.collectionName, {
+        wait: true,
+        filter: {
+          must: [{ key: 'metadata.sourceId', match: { value: sourceId } }],
+        } as any,
+      });
+    } catch {
+      // collection may not exist yet
+    }
   }
 
   async recreateCollection(): Promise<void> {

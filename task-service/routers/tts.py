@@ -5,8 +5,29 @@ from fastapi.responses import Response
 
 router = APIRouter()
 
-# fa-IR-DilaraNeural = صدای زن فارسی  |  fa-IR-FaridNeural = صدای مرد فارسی
 DEFAULT_VOICE = "fa-IR-DilaraNeural"
+
+# کش صداها — فقط یک بار از edge-tts گرفته می‌شه
+_voices_cache: list[dict] | None = None
+
+
+@router.get("/voices")
+async def list_voices():
+    """لیست صداهای فارسی موجود در edge-tts."""
+    global _voices_cache
+    if _voices_cache is None:
+        all_voices = await edge_tts.list_voices()
+        _voices_cache = [
+            {
+                "id":     v["ShortName"],
+                "name":   v["ShortName"].split("-")[2].replace("Neural", ""),
+                "gender": "female" if v["Gender"] == "Female" else "male",
+                "locale": v["Locale"],
+            }
+            for v in all_voices
+            if v["Locale"].startswith("fa-")
+        ]
+    return {"voices": _voices_cache}
 
 
 @router.post("/speak")

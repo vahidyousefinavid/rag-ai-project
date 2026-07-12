@@ -23,9 +23,10 @@ export class RagService {
     private redis: RedisService,
   ) {}
 
-  async ask(question: string, history: HistoryMessage[] = []): Promise<RagResult> {
+  async ask(question: string, history: HistoryMessage[] = [], sourceId?: string): Promise<RagResult> {
+    const cacheKey = sourceId ? `${question}::${sourceId}` : question;
     if (history.length === 0) {
-      const cached = await this.redis.getRagResult(question);
+      const cached = await this.redis.getRagResult(cacheKey);
       if (cached) {
         this.logger.debug(`[CACHE HIT] "${question.slice(0, 60)}"`);
         return cached;
@@ -33,7 +34,7 @@ export class RagService {
     }
 
     const queries = this.buildQueries(question);
-    const allResults = await Promise.all(queries.map((q) => this.vector.search(q, 8, 0.5)));
+    const allResults = await Promise.all(queries.map((q) => this.vector.search(q, 8, 0.5, sourceId)));
 
     // Deduplicate by content, keep highest score
     const scoreMap = new Map<string, { content: string; score: number; metadata: any }>();
@@ -65,7 +66,7 @@ export class RagService {
     const result: RagResult = { answer, sources };
 
     if (history.length === 0) {
-      await this.redis.setRagResult(question, result);
+      await this.redis.setRagResult(cacheKey, result);
     }
 
     return result;

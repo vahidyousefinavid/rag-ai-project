@@ -11,7 +11,7 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="Voice Task Service", lifespan=lifespan)
+app = FastAPI(title="Voice Task Service", version="0.1.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,

@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { JwtService } from '@nestjs/jwt';
 import { User } from '../users/user.entity';
+import { RegisterDto } from './auth.controller';
 
 @Injectable()
 export class AuthService {
@@ -11,10 +12,16 @@ export class AuthService {
     private jwt: JwtService,
   ) {}
 
-  async register(phone: string, name: string) {
-    const existing = await this.users.findOne({ where: { phone } });
+  async register(dto: RegisterDto) {
+    const existing = await this.users.findOne({ where: { phone: dto.phone } });
     if (existing) throw new ConflictException('این شماره قبلاً ثبت شده');
-    const user = this.users.create({ phone, name });
+    const user = this.users.create({
+      phone: dto.phone,
+      name: dto.name,
+      role: dto.role ?? 'owner',
+      workshopName: dto.role === 'mechanic' ? dto.workshopName : undefined,
+      workshopAddress: dto.role === 'mechanic' ? dto.workshopAddress : undefined,
+    });
     await this.users.save(user);
     return this.makeToken(user);
   }
@@ -32,7 +39,14 @@ export class AuthService {
   private makeToken(user: User) {
     return {
       access_token: this.jwt.sign({ sub: user.id, phone: user.phone }),
-      user: { id: user.id, phone: user.phone, name: user.name },
+      user: {
+        id: user.id,
+        phone: user.phone,
+        name: user.name,
+        role: user.role,
+        workshopName: user.workshopName,
+        workshopAddress: user.workshopAddress,
+      },
     };
   }
 }

@@ -21,8 +21,8 @@ async function req<T>(method: string, path: string, body?: unknown): Promise<T> 
 
 export const api = {
   auth: {
-    register: (phone: string, name: string) => req<AuthRes>('POST', '/auth/register', { phone, name }),
-    login:    (phone: string)               => req<AuthRes>('POST', '/auth/login', { phone }),
+    register: (d: RegisterInput) => req<AuthRes>('POST', '/auth/register', d),
+    login:    (phone: string)    => req<AuthRes>('POST', '/auth/login', { phone }),
   },
   vehicles: {
     list:   ()                               => req<Vehicle[]>('GET', '/vehicles'),
@@ -57,10 +57,37 @@ export const api = {
   ai: {
     ask: (vid: string, question: string) => req<{ answer: string }>('POST', `/vehicles/${vid}/ask`, { question }),
   },
+  access: {
+    list:   (vid: string)             => req<VehicleAccessEntry[]>('GET', `/vehicles/${vid}/access`),
+    revoke: (vid: string, id: string) => req<void>('DELETE', `/vehicles/${vid}/access/${id}`),
+  },
+  invites: {
+    create: (vid: string)     => req<Invite>('POST', `/vehicles/${vid}/invites`),
+    redeem: (code: string)    => req<{ vehicleId: string; make: string; model: string }>('POST', '/invites/redeem', { code }),
+  },
+  invoices: {
+    upsert: (vid: string, recordId: string, d: UpsertInvoiceInput) =>
+      req<Invoice>('POST', `/vehicles/${vid}/records/${recordId}/invoice`, d),
+    get:    (vid: string, recordId: string) => req<Invoice>('GET', `/vehicles/${vid}/records/${recordId}/invoice`),
+    remove: (vid: string, recordId: string) => req<void>('DELETE', `/vehicles/${vid}/records/${recordId}/invoice`),
+  },
+  mechanic: {
+    listVehicles: ()               => req<MechanicVehicle[]>('GET', '/mechanic/vehicles'),
+    getVehicle:   (id: string)     => req<MechanicVehicleDetail>('GET', `/mechanic/vehicles/${id}`),
+  },
 };
 
+export type Role = 'owner' | 'mechanic';
+
+export interface RegisterInput {
+  phone: string; name: string; role?: Role; workshopName?: string; workshopAddress?: string;
+}
+
 export interface AuthRes { access_token: string; user: User }
-export interface User { id: string; phone: string; name: string }
+export interface User {
+  id: string; phone: string; name: string; role: Role;
+  workshopName?: string | null; workshopAddress?: string | null;
+}
 
 export interface Vehicle {
   id: string; make: string; model: string; year: number;
@@ -70,10 +97,40 @@ export interface Vehicle {
   createdAt: string; serviceRecords?: ServiceRecord[];
 }
 
+export interface InvoiceSummary {
+  subtotal: number; total: number; paidAmount: number;
+  paymentStatus: 'unpaid' | 'partial' | 'paid'; itemCount: number;
+}
+
 export interface ServiceRecord {
   id: string; vehicleId: string; serviceType: string; serviceDate: string;
   mileage: number; description?: string; cost?: number; workshop?: string;
   nextServiceMileage?: number; nextServiceDate?: string; createdAt: string;
+  createdByUserId?: string | null; createdByRole?: Role | null; createdByName?: string;
+  invoice?: InvoiceSummary;
+}
+
+export interface InvoiceItem { id?: string; type: 'part' | 'labor'; name: string; quantity: number; unitPrice: number }
+export interface UpsertInvoiceInput { discount?: number; paidAmount?: number; notes?: string; items: InvoiceItem[] }
+export interface Invoice {
+  id: string; serviceRecordId: string; createdByUserId?: string; discount: number; paidAmount: number;
+  notes?: string; createdAt: string; items: InvoiceItem[]; subtotal: number; total: number;
+  paymentStatus: 'unpaid' | 'partial' | 'paid';
+}
+
+export interface Invite { id: string; code: string; expiresAt: string; vehicleId: string }
+export interface VehicleAccessEntry {
+  id: string; workshopName?: string; workshopAddress?: string; mechanicPhone?: string; grantedAt: string;
+}
+
+export interface MechanicVehicle {
+  accessId: string; vehicleId: string; make: string; model: string; year: number;
+  plateNumber?: string; currentMileage: number; ownerName?: string; grantedAt: string;
+}
+export interface MechanicVehicleDetail {
+  id: string; make: string; model: string; year: number; plateNumber?: string; color?: string;
+  currentMileage: number; fuelType?: string; engineCapacity?: string; transmission?: string;
+  ownerName?: string; serviceRecords: ServiceRecord[];
 }
 
 export interface FuelLog {
@@ -112,6 +169,17 @@ export const COLORS_HEX: Record<string, string> = {
   سفید: '#f4f4f5', مشکی: '#27272a', 'نقره‌ای': '#a1a1aa', خاکستری: '#6b7280',
   قرمز: '#ef4444', آبی: '#3b82f6', سبز: '#22c55e', زرد: '#eab308', 'سرمه‌ای': '#1e3a5f',
 };
+
+export function toJalali(dateStr?: string): string {
+  if (!dateStr) return '';
+  try {
+    const d = new Date(dateStr + 'T12:00:00');
+    if (isNaN(d.getTime())) return dateStr;
+    return d.toLocaleDateString('fa-IR', { year: 'numeric', month: 'long', day: 'numeric' });
+  } catch {
+    return dateStr;
+  }
+}
 
 export function daysUntil(dateStr?: string): number | null {
   if (!dateStr) return null;

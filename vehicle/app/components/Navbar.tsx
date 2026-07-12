@@ -1,48 +1,40 @@
 'use client';
-import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { CarIcon } from './icons';
+import { C } from './ui';
 
-export default function Navbar() {
-  const router = useRouter();
-
-  function logout() {
-    localStorage.removeItem('vtoken');
-    localStorage.removeItem('vuser');
-    router.push('/');
-  }
-
+export default function Navbar({ title }: { title?: string }) {
   return (
     <header style={{
-      background: 'white',
-      borderBottom: '1px solid #E5ECF4',
+      background: 'rgba(10,17,32,0.88)',
+      backdropFilter: 'blur(24px)',
+      WebkitBackdropFilter: 'blur(24px)',
+      borderBottom: `1px solid ${C.border}`,
       position: 'sticky', top: 0, zIndex: 40,
+      boxShadow: '0 1px 0 rgba(0,0,0,0.30)',
     }}>
       <div style={{
-        maxWidth: 520, margin: '0 auto',
-        padding: '0 20px', height: 56,
+        maxWidth: 560, margin: '0 auto',
+        padding: '0 16px', height: 56,
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
       }}>
         <Link href="/dashboard" style={{
-          display: 'flex', alignItems: 'center', gap: 8,
-          textDecoration: 'none', color: '#1A2A3A', fontWeight: 700, fontSize: 16,
+          display: 'flex', alignItems: 'center', gap: 10,
+          textDecoration: 'none', color: C.text,
+          fontWeight: 900, fontSize: 15,
+          fontFamily: 'Vazirmatn, sans-serif',
         }}>
           <div style={{
-            width: 36, height: 36, borderRadius: 10,
-            background: '#E8F9F6', display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: 18,
-          }}>🚗</div>
-          دستیار خودرو
+            width: 34, height: 34, borderRadius: 11,
+            background: `linear-gradient(135deg, ${C.green}, ${C.greenDark})`,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            color: 'white',
+            boxShadow: `0 4px 14px ${C.greenGlow}`,
+          }}>
+            <CarIcon size={18} />
+          </div>
+          {title ?? 'دستیار خودرو'}
         </Link>
-
-        <button
-          onClick={logout}
-          style={{
-            background: 'none', border: '1px solid #E5ECF4', borderRadius: 10,
-            color: '#8A9DBB', fontSize: 12, padding: '6px 14px', cursor: 'pointer',
-          }}
-        >
-          خروج
-        </button>
       </div>
     </header>
   );

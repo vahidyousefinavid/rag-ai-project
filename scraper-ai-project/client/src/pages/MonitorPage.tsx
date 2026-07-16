@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, type FormEvent } from 'react'
 import { useMonitors } from '../hooks/useMonitors'
-import type { MonitorTarget, MonitorRun, SchedulePreset, NotifyChannel } from '../hooks/useMonitors'
+import type { MonitorTarget, MonitorRun, SchedulePreset, NotifyChannel, CrawlLevel } from '../hooks/useMonitors'
 import { useLanguage } from '../i18n/LanguageContext'
 
 const ANIM = `
@@ -35,6 +35,7 @@ const STATUS_COLOR: Record<string, string> = {
 
 const SCHEDULE_PRESETS: SchedulePreset[] = ['hourly', 'every6h', 'daily', 'weekly', 'custom']
 const NOTIFY_CHANNELS: NotifyChannel[] = ['email', 'telegram', 'webhook', 'sms']
+const CRAWL_LEVELS: CrawlLevel[] = [1, 2, 3]
 
 function timeAgo(iso: string | null, never: string): string {
   if (!iso) return never
@@ -732,7 +733,7 @@ function AddMonitorModal({ t, onClose, onCreate }: {
   t: import('../i18n').Translation
   onClose: () => void
   onCreate: (dto: {
-    name: string; url: string; maxPages: number
+    name: string; url: string; maxPages: number; crawlLevel: CrawlLevel
     schedulePreset: SchedulePreset; scheduleCron?: string
     whatToCheck?: string; notifyChannels: NotifyChannel[]
     notifyConfig: { email?: string; telegramChatId?: string; webhookUrl?: string; smsPhone?: string }
@@ -743,6 +744,7 @@ function AddMonitorModal({ t, onClose, onCreate }: {
   const [name,          setName]          = useState('')
   const [url,            setUrl]          = useState('')
   const [maxPages,       setMaxPages]     = useState('20')
+  const [crawlLevel,     setCrawlLevel]   = useState<CrawlLevel>(2)
   const [schedulePreset, setPreset]       = useState<SchedulePreset>('daily')
   const [scheduleCron,   setCron]         = useState('0 */6 * * *')
   const [whatToCheck,    setWhatToCheck]  = useState('')
@@ -776,6 +778,12 @@ function AddMonitorModal({ t, onClose, onCreate }: {
   const CHANNEL_LABEL: Record<NotifyChannel, string> = {
     email: t.channelEmail, telegram: t.channelTelegram, webhook: t.channelWebhook, sms: t.channelSms,
   }
+  const CRAWL_LEVEL_LABEL: Record<CrawlLevel, string> = {
+    1: t.crawlLevel1, 2: t.crawlLevel2, 3: t.crawlLevel3,
+  }
+  const CRAWL_LEVEL_HINT: Record<CrawlLevel, string> = {
+    1: t.crawlLevel1Hint, 2: t.crawlLevel2Hint, 3: t.crawlLevel3Hint,
+  }
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
@@ -786,6 +794,7 @@ function AddMonitorModal({ t, onClose, onCreate }: {
         name: name.trim(),
         url: url.trim(),
         maxPages: Number(maxPages) || 20,
+        crawlLevel,
         schedulePreset,
         scheduleCron: schedulePreset === 'custom' ? scheduleCron : undefined,
         whatToCheck: whatToCheck.trim() || undefined,
@@ -871,6 +880,30 @@ function AddMonitorModal({ t, onClose, onCreate }: {
           <div>
             <label style={lbl}>{t.monitorUrl}</label>
             <input style={inp} type="url" value={url} onChange={e => setUrl(e.target.value)} placeholder={t.monitorUrlPlaceholder} required />
+          </div>
+
+          <div>
+            <label style={lbl}>{t.monitorCrawlLevel}</label>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              {CRAWL_LEVELS.map(lv => (
+                <button
+                  key={lv} type="button"
+                  onClick={() => setCrawlLevel(lv)}
+                  style={{
+                    flex: 1, minWidth: 100, padding: '7px 11px', borderRadius: 8, fontSize: 11, fontWeight: 600,
+                    border: `1.5px solid ${crawlLevel === lv ? '#7c3aed' : 'var(--border)'}`,
+                    background: crawlLevel === lv ? 'rgba(124,58,237,.14)' : 'rgba(255,255,255,.03)',
+                    color: crawlLevel === lv ? '#a78bfa' : 'var(--text-muted)',
+                    cursor: 'pointer', transition: 'all .15s',
+                  }}
+                >
+                  {CRAWL_LEVEL_LABEL[lv]}
+                </button>
+              ))}
+            </div>
+            <div style={{ fontSize: 10.5, color: 'var(--text-muted)', marginTop: 6, lineHeight: 1.5 }}>
+              {CRAWL_LEVEL_HINT[crawlLevel]}
+            </div>
           </div>
 
           <div>

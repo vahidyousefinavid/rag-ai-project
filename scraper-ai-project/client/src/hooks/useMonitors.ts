@@ -3,6 +3,8 @@ import { useState, useCallback, useRef } from 'react'
 export type MonitorStatus = 'idle' | 'checking' | 'ready' | 'error'
 export type SchedulePreset = 'hourly' | 'every6h' | 'daily' | 'weekly' | 'custom'
 export type NotifyChannel = 'email' | 'telegram' | 'webhook' | 'sms'
+/** 1 = fast/shallow, 2 = deep, 3 = maximum thoroughness — see backend CrawlerService LEVEL_CONFIGS. */
+export type CrawlLevel = 1 | 2 | 3
 
 export interface CompanyInfo {
   emails: string[]
@@ -23,6 +25,7 @@ export interface MonitorTarget {
   name: string
   url: string
   maxPages: number
+  crawlLevel: CrawlLevel
   schedulePreset: SchedulePreset
   scheduleCron: string | null
   whatToCheck: string | null
@@ -99,6 +102,7 @@ export function useMonitors() {
     name: string
     url: string
     maxPages: number
+    crawlLevel: CrawlLevel
     schedulePreset: SchedulePreset
     scheduleCron?: string | null
     whatToCheck?: string

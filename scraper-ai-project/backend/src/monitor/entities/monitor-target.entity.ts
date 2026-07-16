@@ -3,6 +3,8 @@ import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateCol
 export type MonitorStatus = 'idle' | 'checking' | 'ready' | 'error';
 export type SchedulePreset = 'hourly' | 'every6h' | 'daily' | 'weekly' | 'custom';
 export type NotifyChannel = 'email' | 'telegram' | 'webhook' | 'sms';
+/** 1 = fast/shallow, 2 = deep (scroll + "load more"), 3 = maximum thoroughness. See CrawlerService LEVEL_CONFIGS. */
+export type CrawlLevel = 1 | 2 | 3;
 
 export interface CompanyInfo {
   emails: string[];
@@ -31,6 +33,9 @@ export class MonitorTarget {
 
   @Column({ default: 20 })
   maxPages: number;
+
+  @Column({ default: 1 })
+  crawlLevel: CrawlLevel;
 
   @Column({ default: 'daily' })
   schedulePreset: SchedulePreset;

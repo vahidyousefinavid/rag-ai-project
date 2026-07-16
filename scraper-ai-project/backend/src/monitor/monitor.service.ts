@@ -4,7 +4,7 @@ import { Repository } from 'typeorm';
 import { createHash } from 'crypto';
 import { CronTime } from 'cron';
 import { Document } from '@langchain/core/documents';
-import { MonitorTarget, SchedulePreset, NotifyChannel, NotifyConfig } from './entities/monitor-target.entity';
+import { MonitorTarget, SchedulePreset, NotifyChannel, NotifyConfig, CrawlLevel } from './entities/monitor-target.entity';
 import { MonitorRun } from './entities/monitor-run.entity';
 import { CrawlerService, LoginConfig } from './crawler.service';
 import { NotifyService } from './notify/notify.service';
@@ -24,6 +24,7 @@ export interface CreateMonitorDto {
   name: string;
   url: string;
   maxPages?: number;
+  crawlLevel?: CrawlLevel;
   schedulePreset?: SchedulePreset;
   scheduleCron?: string | null;
   whatToCheck?: string | null;
@@ -74,6 +75,7 @@ export class MonitorService {
         name: dto.name,
         url: dto.url,
         maxPages: dto.maxPages ?? 20,
+        crawlLevel: dto.crawlLevel ?? 2,
         schedulePreset: dto.schedulePreset ?? 'daily',
         scheduleCron: dto.schedulePreset === 'custom' ? (dto.scheduleCron ?? null) : null,
         whatToCheck: dto.whatToCheck ?? null,
@@ -153,7 +155,7 @@ export class MonitorService {
 
     try {
       const login = this.buildLoginConfig(target);
-      const { pages, socialLinks } = await this.crawler.crawl(target.url, target.maxPages, login);
+      const { pages, socialLinks } = await this.crawler.crawl(target.url, target.maxPages, login, target.crawlLevel);
       if (pages.length === 0) throw new Error('هیچ صفحه‌ای قابل دریافت نبود');
 
       const companyInfo = this.crawler.extractCompanyInfo(pages, socialLinks);

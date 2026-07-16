@@ -1,8 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { chromium } from 'playwright-extra';
 import { ProxyAgent, setGlobalDispatcher } from 'undici';
-import type { BrowserContext } from 'playwright';
-import type { CompanyInfo } from './entities/monitor-target.entity';
+import type { BrowserContext, Page } from 'playwright';
+import type { CompanyInfo, CrawlLevel } from './entities/monitor-target.entity';
 
 // Plain `module.exports = fn` (CJS) packages, pulled in via plain `require()` rather than
 // `import` — the project's tsconfig doesn't set `esModuleInterop`, so a default `import`
@@ -52,16 +52,65 @@ const DEFAULT_USERNAME_SELECTOR = 'input[type="text"], input[type="email"], inpu
 const DEFAULT_PASSWORD_SELECTOR = 'input[type="password"]';
 const DEFAULT_SUBMIT_SELECTOR = 'button[type="submit"], input[type="submit"], button:has-text("ورود"), button:has-text("Login")';
 
-const MAX_DEPTH = 2;
-const CONCURRENCY = 4;
-const NAV_TIMEOUT_MS = 20000;
-const MAX_RETRIES = 2;
 const DEFAULT_DELAY_MS = 350;
 const MAX_DELAY_MS = 4000;
-const MAX_CONSECUTIVE_FAILURES = 6;
-const MAX_BLOCK_SIGNALS = 4;
 const MAX_IDLE_TICKS = 20;
 const IDLE_TICK_MS = 50;
+/** Timeout for the one-off login page navigation — not part of the per-level crawl config since login always runs once. */
+const LOGIN_NAV_TIMEOUT_MS = 20000;
+
+interface LevelConfig {
+  /** How many link-hops deep the BFS follows from the root page. */
+  maxDepth: number;
+  concurrency: number;
+  navTimeoutMs: number;
+  /** How long we wait for the page to go network-idle after the initial DOM load. */
+  networkIdleTimeoutMs: number;
+  maxRetries: number;
+  /** Scroll-to-bottom passes done on every page before extracting content/links — catches infinite-scroll/lazy-loaded sections. */
+  scrollPasses: number;
+  scrollWaitMs: number;
+  /** How many times we click a "load more" / "نمایش بیشتر" style button before giving up. */
+  loadMoreClicks: number;
+  /** Multiplier applied to maxPages to cap how many sitemap.xml URLs get queued upfront. */
+  sitemapSeedMultiplier: number;
+  /** How tolerant we are of consecutive failures / 403-429 responses before aborting the whole crawl. */
+  maxConsecutiveFailures: number;
+  maxBlockSignals: number;
+}
+
+/**
+ * سطح ۱ (سریع): رفتار پیش‌فرض قبلی — برای سایت‌های ساده و سریع کافیست.
+ * سطح ۲ (دقیق): عمق بیشتر + اسکرول برای محتوای lazy-load + کلیک روی «نمایش بیشتر».
+ * سطح ۳ (خیلی خیلی خیلی دقیق): حداکثر عمق و تلاش، صبور در برابر بلاک‌شدن، اسکرول و
+ * لود بیشتر تهاجمی — برای سایت‌هایی که سطح ۱/۲ بخشی از اطلاعاتشان را جا می‌اندازند.
+ */
+const LEVEL_CONFIGS: Record<CrawlLevel, LevelConfig> = {
+  1: {
+    maxDepth: 2, concurrency: 5, navTimeoutMs: 15000, networkIdleTimeoutMs: 3000,
+    maxRetries: 1, scrollPasses: 0, scrollWaitMs: 0, loadMoreClicks: 0,
+    sitemapSeedMultiplier: 3, maxConsecutiveFailures: 6, maxBlockSignals: 4,
+  },
+  2: {
+    maxDepth: 4, concurrency: 4, navTimeoutMs: 25000, networkIdleTimeoutMs: 6000,
+    maxRetries: 2, scrollPasses: 3, scrollWaitMs: 500, loadMoreClicks: 3,
+    sitemapSeedMultiplier: 5, maxConsecutiveFailures: 9, maxBlockSignals: 6,
+  },
+  3: {
+    maxDepth: 7, concurrency: 3, navTimeoutMs: 40000, networkIdleTimeoutMs: 10000,
+    maxRetries: 4, scrollPasses: 8, scrollWaitMs: 900, loadMoreClicks: 8,
+    sitemapSeedMultiplier: 10, maxConsecutiveFailures: 16, maxBlockSignals: 9,
+  },
+};
+
+const LOAD_MORE_SELECTOR = [
+  'button:has-text("بیشتر")', 'a:has-text("بیشتر")',
+  'button:has-text("نمایش بیشتر")', 'a:has-text("نمایش بیشتر")',
+  'button:has-text("موارد بیشتر")', 'button:has-text("ادامه")',
+  'button:has-text("Load more")', 'a:has-text("Load more")',
+  'button:has-text("Show more")', 'a:has-text("Show more")',
+  'button:has-text("View more")',
+].join(', ');
 
 /**
  * User-agent token we identify as to robots.txt (separate from the rotating browser
@@ -123,6 +172,29 @@ function sleep(ms: number): Promise<void> {
 
 function pickRandom<T>(arr: T[]): T {
   return arr[Math.floor(Math.random() * arr.length)];
+}
+
+/** Scrolls to the bottom repeatedly so infinite-scroll/lazy-loaded content has a chance to render before extraction. */
+async function autoScroll(page: Page, passes: number, waitMs: number): Promise<void> {
+  for (let i = 0; i < passes; i++) {
+    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight)).catch(() => { /* page may be navigating */ });
+    await sleep(waitMs);
+  }
+}
+
+/** Best-effort clicking of "load more" style buttons so paginated-in-place content gets included in the extracted text/links. */
+async function clickLoadMore(page: Page, maxClicks: number): Promise<void> {
+  for (let i = 0; i < maxClicks; i++) {
+    const btn = page.locator(LOAD_MORE_SELECTOR).first();
+    if ((await btn.count().catch(() => 0)) === 0) return;
+    try {
+      await btn.scrollIntoViewIfNeeded({ timeout: 2000 });
+      await btn.click({ timeout: 3000 });
+      await page.waitForLoadState('networkidle', { timeout: 5000 }).catch(() => { /* best-effort settle */ });
+    } catch {
+      return; // button not clickable (covered, detached, etc.) — stop trying
+    }
+  }
 }
 
 /**
@@ -191,8 +263,9 @@ class RateGate {
 export class CrawlerService {
   private readonly logger = new Logger(CrawlerService.name);
 
-  /** Crawls up to `maxPages` same-domain pages starting at `rootUrl` — concurrent, retrying, robots.txt-aware. */
-  async crawl(rootUrl: string, maxPages: number, login?: LoginConfig | null): Promise<{ pages: CrawledPage[]; socialLinks: CompanyInfo['socialLinks'] }> {
+  /** Crawls up to `maxPages` same-domain pages starting at `rootUrl` — concurrent, retrying, robots.txt-aware. `level` (1-3) controls depth/scroll/retry thoroughness, see LEVEL_CONFIGS. */
+  async crawl(rootUrl: string, maxPages: number, login?: LoginConfig | null, level: CrawlLevel = 1): Promise<{ pages: CrawledPage[]; socialLinks: CompanyInfo['socialLinks'] }> {
+    const cfg = LEVEL_CONFIGS[level] ?? LEVEL_CONFIGS[1];
     const origin = new URL(rootUrl).origin;
     const rootNormalized = normalizeUrl(rootUrl) ?? rootUrl;
 
@@ -218,7 +291,7 @@ export class CrawlerService {
       if (u.origin !== origin || shouldSkipUrl(u)) continue;
       queued.add(clean);
       queue.push({ url: clean, depth: 1 });
-      if (queue.length >= maxPages * 3) break;
+      if (queue.length >= maxPages * cfg.sitemapSeedMultiplier) break;
     }
 
     const pages: CrawledPage[] = [];
@@ -271,17 +344,17 @@ export class CrawlerService {
           const page = await context.newPage();
           try {
             let response: Awaited<ReturnType<typeof page.goto>> = null;
-            for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+            for (let attempt = 0; attempt <= cfg.maxRetries; attempt++) {
               try {
                 // 'domcontentloaded' instead of 'networkidle': pages with recurring background
                 // requests (analytics beacons, polling widgets, ads) never go network-idle and
                 // would otherwise burn the full timeout on every attempt. We settle for a short,
                 // non-blocking idle wait afterwards to let JS-rendered content finish painting.
-                response = await page.goto(next.url, { waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT_MS });
-                await page.waitForLoadState('networkidle', { timeout: 5000 }).catch(() => { /* best-effort settle */ });
+                response = await page.goto(next.url, { waitUntil: 'domcontentloaded', timeout: cfg.navTimeoutMs });
+                await page.waitForLoadState('networkidle', { timeout: cfg.networkIdleTimeoutMs }).catch(() => { /* best-effort settle */ });
                 break;
               } catch (err) {
-                if (attempt === MAX_RETRIES) throw err;
+                if (attempt === cfg.maxRetries) throw err;
                 await sleep(600 * 2 ** attempt * (0.7 + Math.random() * 0.6));
               }
             }
@@ -298,6 +371,13 @@ export class CrawlerService {
             const isHtml = !contentType || contentType.includes('text/html');
             const isUsablePage = status === 0 || status < 400;
             if (isHtml && isUsablePage) {
+              // Levels 2/3 trigger lazy-loaded/infinite-scroll and "load more" content before
+              // extracting text/links — this is what mostly explains under-crawled pages on
+              // JS-heavy sites at level 1.
+              if (cfg.scrollPasses > 0) await autoScroll(page, cfg.scrollPasses, cfg.scrollWaitMs);
+              if (cfg.loadMoreClicks > 0) await clickLoadMore(page, cfg.loadMoreClicks);
+              if (cfg.scrollPasses > 0) await autoScroll(page, Math.min(2, cfg.scrollPasses), cfg.scrollWaitMs);
+
               const title = await page.title();
               const text: string = await page.evaluate(() => document.body?.innerText ?? '');
               if (text.trim().length > 0 && pages.length < maxPages) pages.push({ url: next.url, title, text });
@@ -315,7 +395,7 @@ export class CrawlerService {
                   }
                 }
 
-                if (u.origin === origin && next.depth < MAX_DEPTH && !shouldSkipUrl(u) && !queued.has(clean)) {
+                if (u.origin === origin && next.depth < cfg.maxDepth && !shouldSkipUrl(u) && !queued.has(clean)) {
                   queued.add(clean);
                   queue.push({ url: clean, depth: next.depth + 1 });
                 }
@@ -326,7 +406,7 @@ export class CrawlerService {
           } catch (err: any) {
             consecutiveFailures++;
             this.logger.warn(`Failed to load ${next.url}: ${err.message}`);
-            if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES || blockSignals >= MAX_BLOCK_SIGNALS) {
+            if (consecutiveFailures >= cfg.maxConsecutiveFailures || blockSignals >= cfg.maxBlockSignals) {
               aborted = true;
               this.logger.error(`Aborting crawl of ${origin}: too many consecutive failures/blocks — the site is likely blocking this crawler`);
             }
@@ -336,7 +416,7 @@ export class CrawlerService {
         }
       };
 
-      await Promise.all(Array.from({ length: CONCURRENCY }, () => worker()));
+      await Promise.all(Array.from({ length: cfg.concurrency }, () => worker()));
 
       if (aborted && pages.length === 0) {
         throw new Error('کرال متوقف شد: سایت درخواست‌ها را مسدود می‌کند (خطاهای مکرر 403/429 یا شکست پیاپی)');
@@ -404,7 +484,7 @@ export class CrawlerService {
   private async login(context: BrowserContext, login: LoginConfig): Promise<void> {
     const page = await context.newPage();
     try {
-      await page.goto(login.loginUrl, { waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT_MS });
+      await page.goto(login.loginUrl, { waitUntil: 'domcontentloaded', timeout: LOGIN_NAV_TIMEOUT_MS });
       await page.waitForLoadState('networkidle', { timeout: 5000 }).catch(() => { /* best-effort settle */ });
 
       const userSel = login.usernameSelector || DEFAULT_USERNAME_SELECTOR;

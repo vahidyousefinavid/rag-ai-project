@@ -36,6 +36,19 @@ export class AuthService {
     return this.users.findOne({ where: { id } });
   }
 
+  async updateProfile(userId: string, dto: { workshopName?: string; workshopAddress?: string; workshopLat?: number; workshopLng?: number }) {
+    const user = await this.users.findOne({ where: { id: userId } });
+    if (!user) throw new UnauthorizedException();
+    if (user.role !== 'mechanic') throw new UnauthorizedException('فقط برای حساب مکانیک');
+    Object.assign(user, dto);
+    await this.users.save(user);
+    return {
+      id: user.id, phone: user.phone, name: user.name, role: user.role,
+      workshopName: user.workshopName, workshopAddress: user.workshopAddress,
+      workshopLat: user.workshopLat, workshopLng: user.workshopLng,
+    };
+  }
+
   private makeToken(user: User) {
     return {
       access_token: this.jwt.sign({ sub: user.id, phone: user.phone }),

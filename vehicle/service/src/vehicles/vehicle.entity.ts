@@ -8,10 +8,18 @@ import { Reminder } from '../reminders/reminder.entity';
 @Entity('vehicles')
 export class Vehicle {
   @PrimaryGeneratedColumn('uuid') id: string;
-  @Column() userId: string;
+  @Column({ nullable: true }) userId: string;
 
-  @ManyToOne(() => User, (u) => u.vehicles, { onDelete: 'CASCADE' })
+  @ManyToOne(() => User, (u) => u.vehicles, { onDelete: 'CASCADE', nullable: true })
   @JoinColumn({ name: 'userId' }) user: User;
+
+  // set when a mechanic creates this vehicle before it belongs to any registered user
+  @Column({ nullable: true }) addedByMechanicId: string;
+  @Column({ nullable: true }) customerName: string;
+  @Column({ default: 'none' }) linkStatus: 'none' | 'pending' | 'rejected';
+  @Column({ nullable: true }) linkedOwnerId: string;
+
+  @Column({ nullable: true }) organizationId: string;
 
   @Column() make: string;
   @Column() model: string;

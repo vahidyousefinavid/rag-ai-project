@@ -133,6 +133,9 @@ Open `http://localhost:5174`
   instead of grinding through a site that's actively blocking it.
 - If `HTTP_PROXY`/`HTTPS_PROXY`/`ALL_PROXY` is set in the environment, the crawler's browser
   uses it — Playwright doesn't inherit these automatically the way most HTTP clients do, which
-  matters on networks that require a local proxy to reach the outside world at all.
+  matters on networks that require a local proxy to reach the outside world at all. Set
+  `NO_PROXY` (comma-separated hosts, e.g. `.ir,internal.example.com`) to skip the proxy for
+  specific sites — useful when the proxy is a circumvention tunnel for reaching blocked
+  international sites but can't route back to domestic ones.
 - Structured company-info extraction (email/phone/social/address) is heuristic-based, not a
   guaranteed-accurate parser.

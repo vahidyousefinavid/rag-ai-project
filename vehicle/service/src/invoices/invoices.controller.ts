@@ -1,8 +1,10 @@
-import { Controller, Get, Post, Delete, Body, Param, UseGuards, Request, HttpCode } from '@nestjs/common';
+import { Controller, Get, Post, Delete, Body, Param, UseGuards, Request, HttpCode, Res } from '@nestjs/common';
 import { IsString, IsNumber, IsOptional, IsIn, IsArray, ValidateNested, Min } from 'class-validator';
 import { Type } from 'class-transformer';
+import type { Response } from 'express';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { InvoicesService } from './invoices.service';
+import { PdfService } from '../pdf/pdf.service';
 
 class InvoiceItemDto {
   @IsIn(['part', 'labor'])
@@ -37,7 +39,7 @@ class UpsertInvoiceDto {
 @UseGuards(JwtAuthGuard)
 @Controller('vehicles/:vehicleId/records/:recordId/invoice')
 export class InvoicesController {
-  constructor(private svc: InvoicesService) {}
+  constructor(private svc: InvoicesService, private pdfService: PdfService) {}
 
   @Post()
   upsert(
@@ -58,5 +60,18 @@ export class InvoicesController {
   @HttpCode(204)
   remove(@Param('vehicleId') vehicleId: string, @Param('recordId') recordId: string, @Request() req) {
     return this.svc.remove(vehicleId, recordId, req.user.id);
+  }
+
+  @Get('pdf')
+  async pdf(
+    @Param('vehicleId') vehicleId: string,
+    @Param('recordId') recordId: string,
+    @Request() req,
+    @Res() res: Response,
+  ) {
+    const { vehicle, record, invoice } = await this.svc.getFullForPdf(vehicleId, recordId, req.user.id);
+    const buf = await this.pdfService.invoicePdf(vehicle, record, invoice);
+    res.set({ 'Content-Type': 'application/pdf', 'Content-Disposition': `attachment; filename="invoice-${recordId}.pdf"` });
+    res.send(buf);
   }
 }

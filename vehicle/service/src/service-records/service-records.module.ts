@@ -5,9 +5,10 @@ import { Vehicle } from '../vehicles/vehicle.entity';
 import { ServiceRecordsController } from './service-records.controller';
 import { ServiceRecordsService } from './service-records.service';
 import { VehicleAccessModule } from '../vehicle-access/vehicle-access.module';
+import { PdfModule } from '../pdf/pdf.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([ServiceRecord, Vehicle]), VehicleAccessModule],
+  imports: [TypeOrmModule.forFeature([ServiceRecord, Vehicle]), VehicleAccessModule, PdfModule],
   controllers: [ServiceRecordsController],
   providers: [ServiceRecordsService],
   exports: [ServiceRecordsService],

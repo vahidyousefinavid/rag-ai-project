@@ -20,6 +20,34 @@ export interface NotifyConfig {
   smsPhone?: string
 }
 
+export interface ExtractionField {
+  name: string
+  selector: string
+  attr?: string | null
+}
+
+export interface ExtractionSchema {
+  itemSelector?: string | null
+  fields: ExtractionField[]
+}
+
+export type DbSinkType = 'postgres' | 'mysql' | 'mongodb'
+export type DbSinkMode = 'append' | 'replace' | 'upsert'
+
+export interface DbSinkConfig {
+  enabled: boolean
+  type: DbSinkType
+  host: string
+  port: number
+  user: string
+  database: string
+  table: string
+  mode: DbSinkMode
+  upsertKey?: string | null
+  ssl?: boolean
+  hasPassword: boolean
+}
+
 export interface MonitorTarget {
   id: string
   name: string
@@ -37,8 +65,14 @@ export interface MonitorTarget {
   loginPasswordSelector: string | null
   loginSubmitSelector: string | null
   hasLoginPassword: boolean
+  extractionSchema: ExtractionSchema | null
+  dbSink: DbSinkConfig | null
+  apiKeyPrefix: string | null
+  hasApiKey: boolean
   status: MonitorStatus
   lastError: string | null
+  lastDbSinkError: string | null
+  lastExtractionWarning: string | null
   pageCount: number
   docCount: number
   companyInfo: CompanyInfo | null
@@ -54,7 +88,9 @@ export interface MonitorRun {
   changed: boolean
   summary: string | null
   pagesChecked: number
+  extractedCount: number
   error: string | null
+  dbSinkError: string | null
   ranAt: string
 }
 
@@ -69,6 +105,41 @@ export interface MonitorChatSession {
   id: string
   title: string | null
   createdAt: string
+}
+
+/** Form input shape for the DB-sink section — plaintext `password` in, never echoed back by the API. */
+export interface DbSinkFormInput {
+  enabled: boolean
+  type: DbSinkType
+  host: string
+  port: number
+  user: string
+  password?: string
+  database: string
+  table: string
+  mode: DbSinkMode
+  upsertKey?: string
+  ssl?: boolean
+}
+
+export interface MonitorFormDto {
+  name: string
+  url: string
+  maxPages: number
+  crawlLevel: CrawlLevel
+  schedulePreset: SchedulePreset
+  scheduleCron?: string | null
+  whatToCheck?: string
+  notifyChannels: NotifyChannel[]
+  notifyConfig: NotifyConfig
+  loginUrl?: string
+  loginUsername?: string
+  loginPassword?: string
+  loginUsernameSelector?: string
+  loginPasswordSelector?: string
+  loginSubmitSelector?: string
+  extractionSchema?: ExtractionSchema | null
+  dbSink?: DbSinkFormInput | null
 }
 
 async function errorMessage(res: Response, fallback: string): Promise<string> {
@@ -98,23 +169,7 @@ export function useMonitors() {
     } catch { /* silent */ }
   }, [])
 
-  const createTarget = useCallback(async (dto: {
-    name: string
-    url: string
-    maxPages: number
-    crawlLevel: CrawlLevel
-    schedulePreset: SchedulePreset
-    scheduleCron?: string | null
-    whatToCheck?: string
-    notifyChannels: NotifyChannel[]
-    notifyConfig: NotifyConfig
-    loginUrl?: string
-    loginUsername?: string
-    loginPassword?: string
-    loginUsernameSelector?: string
-    loginPasswordSelector?: string
-    loginSubmitSelector?: string
-  }): Promise<MonitorTarget> => {
+  const createTarget = useCallback(async (dto: MonitorFormDto): Promise<MonitorTarget> => {
     const res = await fetch('/monitors', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -127,9 +182,55 @@ export function useMonitors() {
     return target
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
+  const updateTarget = useCallback(async (id: string, dto: Partial<MonitorFormDto>): Promise<MonitorTarget> => {
+    const res = await fetch(`/monitors/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(dto),
+    })
+    if (!res.ok) throw new Error(await errorMessage(res, 'Update failed'))
+    const target: MonitorTarget = await res.json()
+    setTargets(s => s.map(x => x.id === id ? target : x))
+    return target
+  }, [])
+
   const deleteTarget = useCallback(async (id: string) => {
     await fetch(`/monitors/${id}`, { method: 'DELETE' })
     setTargets(s => s.filter(x => x.id !== id))
+  }, [])
+
+  const generateApiKey = useCallback(async (id: string): Promise<string> => {
+    const res = await fetch(`/monitors/${id}/api-key`, { method: 'POST' })
+    if (!res.ok) throw new Error(await errorMessage(res, 'Failed to generate API key'))
+    const data: { apiKey: string } = await res.json()
+    setTargets(s => s.map(x => x.id === id ? { ...x, hasApiKey: true, apiKeyPrefix: data.apiKey.slice(0, 8) } : x))
+    return data.apiKey
+  }, [])
+
+  const revokeApiKey = useCallback(async (id: string) => {
+    await fetch(`/monitors/${id}/api-key`, { method: 'DELETE' })
+    setTargets(s => s.map(x => x.id === id ? { ...x, hasApiKey: false, apiKeyPrefix: null } : x))
+  }, [])
+
+  const fetchDataPreview = useCallback(async (id: string): Promise<Record<string, any>[]> => {
+    try {
+      const res = await fetch(`/monitors/${id}/data/preview`)
+      if (!res.ok) return []
+      return await res.json()
+    } catch { return [] }
+  }, [])
+
+  const testDbSink = useCallback(async (cfg: DbSinkFormInput): Promise<{ ok: boolean; error?: string }> => {
+    try {
+      const res = await fetch('/monitors/db-sink/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(cfg),
+      })
+      return await res.json()
+    } catch (err: any) {
+      return { ok: false, error: err.message }
+    }
   }, [])
 
   const checkNow = useCallback(async (id: string) => {
@@ -276,7 +377,8 @@ export function useMonitors() {
 
   return {
     targets, messages, loading, error, chatSessions, sessionId,
-    fetchTargets, createTarget, deleteTarget, checkNow, fetchRuns,
+    fetchTargets, createTarget, updateTarget, deleteTarget, checkNow, fetchRuns,
+    generateApiKey, revokeApiKey, fetchDataPreview, testDbSink,
     ask, clearChat, selectTarget, newChat, selectChat, deleteChat,
   }
 }

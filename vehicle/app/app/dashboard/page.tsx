@@ -4,11 +4,55 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import Navbar from '@/components/Navbar';
 import BottomNav from '@/components/BottomNav';
-import { api, Vehicle, daysUntil, expiryStatus } from '@/lib/api';
+import RequestServiceModal from '@/components/RequestServiceModal';
+import { svcMeta } from '@/components/serviceMeta';
+import { api, Vehicle, daysUntil, expiryStatus, SERVICE_TYPES } from '@/lib/api';
 import { C, EmptyState, SkeletonRow, SkeletonHero } from '@/components/ui';
 import {
-  CarIcon, ShieldIcon, SearchIcon, ChevronLeftIcon, PlusIcon,
+  CarIcon, ShieldIcon, SearchIcon, ChevronLeftIcon, PlusIcon, StoreIcon,
 } from '@/components/icons';
+
+/* ── Quick service request cards ─────────────────────────────────── */
+const QUICK_SERVICES = SERVICE_TYPES.filter(t => t !== 'سایر');
+
+function QuickServices({ onPick }: { onPick: (type: string) => void }) {
+  return (
+    <div style={{ marginBottom: 20 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+        <h2 style={{ color: 'rgba(240,246,255,0.80)', fontSize: 14, fontWeight: 700, margin: 0 }}>درخواست سریع خدمت</h2>
+        <Link href="/workshops" style={{
+          display: 'flex', alignItems: 'center', gap: 4, color: C.muted, fontSize: 12, fontWeight: 600, textDecoration: 'none',
+        }}>
+          <StoreIcon size={13} /> همه تعمیرگاه‌ها
+        </Link>
+      </div>
+      <div style={{ display: 'flex', gap: 10, overflowX: 'auto', paddingBottom: 4, scrollbarWidth: 'none' }}>
+        {QUICK_SERVICES.map(type => {
+          const meta = svcMeta(type);
+          const Icon = meta.icon;
+          return (
+            <button
+              key={type}
+              onClick={() => onPick(type)}
+              style={{
+                flexShrink: 0, width: 92, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8,
+                padding: '14px 8px', borderRadius: 18,
+                background: C.surface, border: `1px solid ${C.border}`,
+                fontFamily: 'Vazirmatn, sans-serif',
+              }}
+            >
+              <div style={{
+                width: 40, height: 40, borderRadius: 13, background: `${meta.color}1F`, border: `1px solid ${meta.color}40`,
+                display: 'flex', alignItems: 'center', justifyContent: 'center', color: meta.color,
+              }}><Icon size={19} /></div>
+              <span style={{ fontSize: 11, fontWeight: 700, color: C.text, textAlign: 'center', lineHeight: 1.4 }}>{type}</span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 
 /* ── Health progress ring ─────────────────────────────────────── */
 function ProgressRing({ pct }: { pct: number }) {
@@ -190,6 +234,7 @@ export default function Dashboard() {
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [loading, setLoading]   = useState(true);
   const [user, setUser]         = useState<{ name: string } | null>(null);
+  const [requestType, setRequestType] = useState<string | null>(null);
 
   useEffect(() => {
     if (!localStorage.getItem('vtoken')) { router.replace('/'); return; }
@@ -229,6 +274,8 @@ export default function Dashboard() {
             />
           </div>
         )}
+
+        <QuickServices onPick={setRequestType} />
 
         {alerts.length > 0 && (
           <div style={{ marginBottom: 20 }}>
@@ -322,6 +369,7 @@ export default function Dashboard() {
 
       </main>
 
+      {requestType && <RequestServiceModal serviceType={requestType} onClose={() => setRequestType(null)} />}
       <BottomNav />
     </div>
   );

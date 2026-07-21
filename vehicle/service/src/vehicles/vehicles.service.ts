@@ -2,10 +2,14 @@ import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/commo
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Vehicle } from './vehicle.entity';
+import { OrganizationMember } from '../organizations/organization-member.entity';
 
 @Injectable()
 export class VehiclesService {
-  constructor(@InjectRepository(Vehicle) private repo: Repository<Vehicle>) {}
+  constructor(
+    @InjectRepository(Vehicle) private repo: Repository<Vehicle>,
+    @InjectRepository(OrganizationMember) private orgMembers: Repository<OrganizationMember>,
+  ) {}
 
   findAll(userId: string) {
     return this.repo.find({ where: { userId }, order: { createdAt: 'DESC' } });
@@ -14,7 +18,10 @@ export class VehiclesService {
   async findOne(id: string, userId: string) {
     const v = await this.repo.findOne({ where: { id }, relations: ['serviceRecords'] });
     if (!v) throw new NotFoundException();
-    if (v.userId !== userId) throw new ForbiddenException();
+    if (v.userId !== userId) {
+      const isOrgMember = v.organizationId && (await this.orgMembers.findOne({ where: { organizationId: v.organizationId, userId } }));
+      if (!isOrgMember) throw new ForbiddenException();
+    }
     v.serviceRecords?.sort((a, b) => new Date(b.serviceDate).getTime() - new Date(a.serviceDate).getTime());
     return v;
   }

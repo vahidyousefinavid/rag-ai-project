@@ -69,6 +69,20 @@ export const BellIcon = (p: IconProps) => (
   </Svg>
 );
 
+export const MicIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <rect x="9" y="2" width="6" height="12" rx="3" />
+    <path d="M5 10a7 7 0 0 0 14 0M12 19v3" />
+  </Svg>
+);
+
+export const Volume2Icon = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M4 9v6h4l5 4V5L8 9H4Z" />
+    <path d="M16.5 8.5a5 5 0 0 1 0 7M19.5 6a9 9 0 0 1 0 12" />
+  </Svg>
+);
+
 export const SparklesIcon = (p: IconProps) => (
   <Svg {...p}>
     <path d="M12 3v3M12 18v3M4.5 12h3M16.5 12h3M6.5 6.5l2 2M15.5 15.5l2 2M17.5 6.5l-2 2M8.5 15.5l-2 2" />
@@ -286,3 +300,65 @@ export function IranFlag({ width = 22, height = 15, radius = 2 }: { width?: numb
 }
 
 export const CarFrontIcon = CarIcon;
+
+export const StarIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="m12 2.5 3.1 6.3 6.9 1-5 4.9 1.2 6.9L12 18.4l-6.2 3.2 1.2-6.9-5-4.9 6.9-1L12 2.5Z" />
+  </Svg>
+);
+
+export const MessageIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M4 4h16a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1H9l-5 4v-4H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1Z" />
+  </Svg>
+);
+
+export const CreditCardIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <rect x="2" y="5" width="20" height="14" rx="2" />
+    <path d="M2 10h20M6 15h4" />
+  </Svg>
+);
+
+export const DownloadIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M12 3v12m0 0 4.5-4.5M12 15 7.5 10.5" />
+    <path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" />
+  </Svg>
+);
+
+export const BoxIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M21 8 12 3 3 8v8l9 5 9-5V8Z" />
+    <path d="M3 8l9 5 9-5M12 13v8" />
+  </Svg>
+);
+
+export const UsersIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <circle cx="9" cy="8" r="3.5" />
+    <path d="M2 20c0-3.6 3.1-6.5 7-6.5s7 2.9 7 6.5" />
+    <path d="M16.5 5a3.5 3.5 0 0 1 0 7" />
+    <path d="M22 20c0-3-2.2-5.5-5-6.3" />
+  </Svg>
+);
+
+export const SendIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M22 2 11 13" />
+    <path d="M22 2 15 22l-4-9-9-4 20-7Z" />
+  </Svg>
+);
+
+export const CompassIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <circle cx="12" cy="12" r="9" />
+    <path d="m15 9-2 6-6 2 2-6 6-2Z" />
+  </Svg>
+);
+
+export const NavigationIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M3 11 20 3l-8 17-2-7-7-2Z" />
+  </Svg>
+);

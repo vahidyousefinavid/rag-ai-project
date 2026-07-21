@@ -23,6 +23,9 @@ export class RagSource {
   @Column({ default: 0 })
   docCount: number;
 
+  @Column({ type: 'int', nullable: true })
+  totalChunks: number | null;
+
   @Column({ type: 'text', nullable: true })
   lastError: string | null;
 

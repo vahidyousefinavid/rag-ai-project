@@ -21,6 +21,12 @@ export class User {
   @Column({ nullable: true })
   workshopAddress: string;
 
+  @Column({ type: 'double precision', nullable: true })
+  workshopLat: number;
+
+  @Column({ type: 'double precision', nullable: true })
+  workshopLng: number;
+
   @CreateDateColumn()
   createdAt: Date;
 

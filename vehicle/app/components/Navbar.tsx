@@ -2,6 +2,8 @@
 import Link from 'next/link';
 import { CarIcon } from './icons';
 import { C } from './ui';
+import NotificationsBell from './NotificationsBell';
+import MessagesBell from './MessagesBell';
 
 export default function Navbar({ title }: { title?: string }) {
   return (
@@ -35,6 +37,10 @@ export default function Navbar({ title }: { title?: string }) {
           </div>
           {title ?? 'دستیار خودرو'}
         </Link>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <MessagesBell />
+          <NotificationsBell />
+        </div>
       </div>
     </header>
   );

@@ -2,7 +2,12 @@ import { Injectable, Logger } from '@nestjs/common';
 import { chromium } from 'playwright-extra';
 import { ProxyAgent, setGlobalDispatcher } from 'undici';
 import type { BrowserContext, Page } from 'playwright';
-import type { CompanyInfo, CrawlLevel } from './entities/monitor-target.entity';
+import type { ChatOllama } from '@langchain/ollama';
+import { tool } from '@langchain/core/tools';
+import { SystemMessage, HumanMessage } from '@langchain/core/messages';
+import { z } from 'zod';
+import type { CompanyInfo, CrawlLevel, ExtractionSchema } from './entities/monitor-target.entity';
+import { OllamaService } from '../llm/ollama.service';
 
 // Plain `module.exports = fn` (CJS) packages, pulled in via plain `require()` rather than
 // `import` — the project's tsconfig doesn't set `esModuleInterop`, so a default `import`
@@ -56,6 +61,8 @@ const DEFAULT_DELAY_MS = 350;
 const MAX_DELAY_MS = 4000;
 const MAX_IDLE_TICKS = 20;
 const IDLE_TICK_MS = 50;
+/** Hard cap on structured records collected per crawl — bounds memory on large listing sites. */
+const MAX_EXTRACTED_RECORDS = 5000;
 /** Timeout for the one-off login page navigation — not part of the per-level crawl config since login always runs once. */
 const LOGIN_NAV_TIMEOUT_MS = 20000;
 
@@ -174,12 +181,65 @@ function pickRandom<T>(arr: T[]): T {
   return arr[Math.floor(Math.random() * arr.length)];
 }
 
+/** Rewrites low-level Playwright/network errors into a reason a non-technical user can act on. */
+function humanizeError(message: string): string {
+  if (/ERR_NAME_NOT_RESOLVED/i.test(message)) return 'آدرس سایت پیدا نشد — دامنه رو بررسی کنید.';
+  if (/ERR_CONNECTION_REFUSED/i.test(message)) return 'سرور سایت اتصال رو رد کرد — ممکنه سایت پایین باشه یا آدرس/پورت اشتباه باشه.';
+  if (/ERR_CONNECTION_RESET/i.test(message)) return 'اتصال به‌طور ناگهانی قطع شد — احتمالاً سایت کرالر رو شناسایی و مسدود کرده.';
+  if (/ERR_CERT|SSL|certificate/i.test(message)) return 'مشکل گواهی SSL سایت — اتصال امن برقرار نشد.';
+  if (/ERR_(CONNECTION_)?TIMED_OUT|Timeout \d+ms exceeded/i.test(message)) return 'سایت در زمان مناسب پاسخ نداد (Timeout) — سایت کند است یا کرالر رو مسدود کرده.';
+  if (/^HTTP 5\d\d$/.test(message)) return `سرور سایت خطای ${message.replace('HTTP ', '')} برگردوند — مشکل از سمت خود سایت است.`;
+  if (/net::ERR_/i.test(message)) return `خطای شبکه هنگام اتصال به سایت: ${message}`;
+  return message;
+}
+
 /** Scrolls to the bottom repeatedly so infinite-scroll/lazy-loaded content has a chance to render before extraction. */
 async function autoScroll(page: Page, passes: number, waitMs: number): Promise<void> {
   for (let i = 0; i < passes; i++) {
     await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight)).catch(() => { /* page may be navigating */ });
     await sleep(waitMs);
   }
+}
+
+/**
+ * Runs the user's CSS-selector schema against the live, fully-rendered page and returns
+ * one plain-object record per match. Executes inside the page (via page.evaluate), so the
+ * callback below must be self-contained — no closures over outer TS scope, only its own
+ * `schema` argument, since Playwright re-serializes and re-runs it in the browser context.
+ */
+async function extractRecords(page: Page, schema: ExtractionSchema): Promise<Record<string, any>[]> {
+  return page.evaluate((s: { itemSelector?: string | null; fields: { name: string; selector: string; attr?: string | null }[] }) => {
+    function pick(root: ParentNode, selector: string, attr?: string | null): string | null {
+      let el: Element | null;
+      try {
+        el = root.querySelector(selector);
+      } catch {
+        return null; // invalid selector — skip rather than throw and lose the whole page
+      }
+      if (!el) return null;
+      if (!attr || attr === 'text') return (el.textContent ?? '').trim();
+      if (attr === 'html') return el.innerHTML;
+      return el.getAttribute(attr);
+    }
+
+    function readOne(root: ParentNode): Record<string, any> {
+      const rec: Record<string, any> = {};
+      for (const f of s.fields) rec[f.name] = pick(root, f.selector, f.attr);
+      return rec;
+    }
+
+    if (s.itemSelector) {
+      let items: Element[] = [];
+      try {
+        items = Array.from(document.querySelectorAll(s.itemSelector));
+      } catch {
+        return [];
+      }
+      return items.map((item) => readOne(item));
+    }
+
+    return [readOne(document)];
+  }, schema).catch(() => []);
 }
 
 /** Best-effort clicking of "load more" style buttons so paginated-in-place content gets included in the extracted text/links. */
@@ -203,16 +263,24 @@ async function clickLoadMore(page: Page, maxClicks: number): Promise<void> {
  * networks (corporate, or ISPs that filter/throttle direct access) route through a local
  * proxy for exactly this reason, so without this the crawler silently times out on sites
  * that are perfectly reachable through the configured proxy.
+ *
+ * `NO_PROXY`/`no_proxy` (standard comma-separated host list, e.g. `.ir,internal.corp`) is
+ * forwarded as Playwright's `bypass` — some circumvention proxies used to reach blocked
+ * international sites can't route back to domestic sites at all, so those need to skip the
+ * proxy entirely rather than time out through it.
  */
-function resolveProxyFromEnv(): { server: string; username?: string; password?: string } | undefined {
+function resolveProxyFromEnv(): { server: string; username?: string; password?: string; bypass?: string } | undefined {
   const raw = process.env.HTTPS_PROXY || process.env.https_proxy || process.env.HTTP_PROXY || process.env.http_proxy || process.env.ALL_PROXY || process.env.all_proxy;
   if (!raw) return undefined;
   try {
     const u = new URL(raw);
+    const noProxyRaw = process.env.NO_PROXY || process.env.no_proxy;
+    const bypass = noProxyRaw?.split(',').map((s) => s.trim()).filter(Boolean).join(',') || undefined;
     return {
       server: `${u.protocol}//${u.host}`,
       username: u.username ? decodeURIComponent(u.username) : undefined,
       password: u.password ? decodeURIComponent(u.password) : undefined,
+      bypass,
     };
   } catch {
     return undefined;
@@ -263,8 +331,17 @@ class RateGate {
 export class CrawlerService {
   private readonly logger = new Logger(CrawlerService.name);
 
-  /** Crawls up to `maxPages` same-domain pages starting at `rootUrl` — concurrent, retrying, robots.txt-aware. `level` (1-3) controls depth/scroll/retry thoroughness, see LEVEL_CONFIGS. */
-  async crawl(rootUrl: string, maxPages: number, login?: LoginConfig | null, level: CrawlLevel = 1): Promise<{ pages: CrawledPage[]; socialLinks: CompanyInfo['socialLinks'] }> {
+  /** Crawls up to `maxPages` same-domain pages starting at `rootUrl` — concurrent, retrying, robots.txt-aware. `level` (1-3) controls depth/scroll/retry thoroughness, see LEVEL_CONFIGS. `schema`, if given, also pulls structured records out of every page via CSS selectors. */
+  async crawl(
+    rootUrl: string,
+    maxPages: number,
+    login?: LoginConfig | null,
+    level: CrawlLevel = 1,
+    schema?: ExtractionSchema | null,
+  ): Promise<{
+    pages: CrawledPage[]; socialLinks: CompanyInfo['socialLinks']; records: Record<string, any>[];
+    lastFailureReason: string | null;
+  }> {
     const cfg = LEVEL_CONFIGS[level] ?? LEVEL_CONFIGS[1];
     const origin = new URL(rootUrl).origin;
     const rootNormalized = normalizeUrl(rootUrl) ?? rootUrl;
@@ -295,10 +372,13 @@ export class CrawlerService {
     }
 
     const pages: CrawledPage[] = [];
+    const records: Record<string, any>[] = [];
     const socialLinksMap = new Map<string, string>();
     let consecutiveFailures = 0;
     let blockSignals = 0;
     let aborted = false;
+    /** Most recent page-load failure reason — surfaced to the user when the whole crawl comes back empty. */
+    let lastFailureReason: string | null = null;
 
     const browser = await chromium.launch({
       headless: true,
@@ -362,6 +442,9 @@ export class CrawlerService {
             const status = response?.status() ?? 0;
             if (status === 403 || status === 429) {
               blockSignals++;
+              lastFailureReason = status === 429
+                ? 'سایت با کد 429 (درخواست‌های زیاد) در حال محدودکردن کرالر است.'
+                : 'سایت با کد 403 (Forbidden) درخواست کرالر رو رد کرد — احتمالاً مسدودش کرده.';
               this.logger.warn(`[${status}] ${next.url}`);
             } else if (status >= 500) {
               throw new Error(`HTTP ${status}`);
@@ -381,6 +464,14 @@ export class CrawlerService {
               const title = await page.title();
               const text: string = await page.evaluate(() => document.body?.innerText ?? '');
               if (text.trim().length > 0 && pages.length < maxPages) pages.push({ url: next.url, title, text });
+
+              if (schema?.fields.length && records.length < MAX_EXTRACTED_RECORDS) {
+                const pageRecords = await extractRecords(page, schema);
+                for (const r of pageRecords) {
+                  if (records.length >= MAX_EXTRACTED_RECORDS) break;
+                  records.push({ url: next.url, ...r });
+                }
+              }
 
               const hrefs: string[] = await page.$$eval('a[href]', (as) => as.map((a) => (a as HTMLAnchorElement).href));
               for (const href of hrefs) {
@@ -405,6 +496,7 @@ export class CrawlerService {
             consecutiveFailures = 0;
           } catch (err: any) {
             consecutiveFailures++;
+            lastFailureReason = humanizeError(err.message);
             this.logger.warn(`Failed to load ${next.url}: ${err.message}`);
             if (consecutiveFailures >= cfg.maxConsecutiveFailures || blockSignals >= cfg.maxBlockSignals) {
               aborted = true;
@@ -425,7 +517,12 @@ export class CrawlerService {
       await browser.close();
     }
 
-    return { pages, socialLinks: [...socialLinksMap.entries()].map(([platform, url]) => ({ platform, url })) };
+    return {
+      pages,
+      socialLinks: [...socialLinksMap.entries()].map(([platform, url]) => ({ platform, url })),
+      records,
+      lastFailureReason,
+    };
   }
 
   private async fetchRobots(origin: string): Promise<RobotsRules | null> {

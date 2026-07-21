@@ -23,6 +23,8 @@ export const api = {
   auth: {
     register: (d: RegisterInput) => req<AuthRes>('POST', '/auth/register', d),
     login:    (phone: string)    => req<AuthRes>('POST', '/auth/login', { phone }),
+    updateProfile: (d: { workshopName?: string; workshopAddress?: string; workshopLat?: number; workshopLng?: number }) =>
+      req<User>('PATCH', '/auth/me', d),
   },
   vehicles: {
     list:   ()                               => req<Vehicle[]>('GET', '/vehicles'),
@@ -32,9 +34,10 @@ export const api = {
     remove: (id: string)                     => req<void>('DELETE', `/vehicles/${id}`),
   },
   records: {
-    list:   (vid: string)                            => req<ServiceRecord[]>('GET', `/vehicles/${vid}/records`),
-    create: (vid: string, d: Partial<ServiceRecord>) => req<ServiceRecord>('POST', `/vehicles/${vid}/records`, d),
-    remove: (vid: string, id: string)                => req<void>('DELETE', `/vehicles/${vid}/records/${id}`),
+    list:   (vid: string)                                => req<ServiceRecord[]>('GET', `/vehicles/${vid}/records`),
+    create: (vid: string, d: Partial<ServiceRecord>)     => req<ServiceRecord>('POST', `/vehicles/${vid}/records`, d),
+    update: (vid: string, id: string, d: Partial<ServiceRecord>) => req<ServiceRecord>('PATCH', `/vehicles/${vid}/records/${id}`, d),
+    remove: (vid: string, id: string)                    => req<void>('DELETE', `/vehicles/${vid}/records/${id}`),
   },
   fuel: {
     list:   (vid: string)                         => req<FuelLog[]>('GET', `/vehicles/${vid}/fuel`),
@@ -72,10 +75,96 @@ export const api = {
     remove: (vid: string, recordId: string) => req<void>('DELETE', `/vehicles/${vid}/records/${recordId}/invoice`),
   },
   mechanic: {
-    listVehicles: ()               => req<MechanicVehicle[]>('GET', '/mechanic/vehicles'),
-    getVehicle:   (id: string)     => req<MechanicVehicleDetail>('GET', `/mechanic/vehicles/${id}`),
+    listVehicles: ()                              => req<MechanicVehicle[]>('GET', '/mechanic/vehicles'),
+    getVehicle:   (id: string)                    => req<MechanicVehicleDetail>('GET', `/mechanic/vehicles/${id}`),
+    createVehicle: (d: CreateMechanicVehicleInput) => req<MechanicVehicleDetail>('POST', '/mechanic/vehicles', d),
+  },
+  notifications: {
+    list:         ()                 => req<AppNotification[]>('GET', '/notifications'),
+    unreadCount:  ()                 => req<{ count: number }>('GET', '/notifications/unread-count'),
+    markRead:     (id: string)       => req<AppNotification>('POST', `/notifications/${id}/read`, {}),
+    confirm:      (id: string)       => req<AppNotification>('POST', `/notifications/${id}/confirm`, {}),
+    reject:       (id: string)       => req<AppNotification>('POST', `/notifications/${id}/reject`, {}),
+  },
+  reviews: {
+    list:    (mechanicId: string)                        => req<MechanicReview[]>('GET', `/mechanics/${mechanicId}/reviews`),
+    summary: (mechanicId: string)                        => req<RatingSummary>('GET', `/mechanics/${mechanicId}/reviews/summary`),
+    mine:    (mechanicId: string)                         => req<MechanicReview | null>('GET', `/mechanics/${mechanicId}/reviews/mine`),
+    upsert:  (mechanicId: string, d: { rating: number; comment?: string }) => req<MechanicReview>('POST', `/mechanics/${mechanicId}/reviews`, d),
+  },
+  workshops: {
+    search: (params: { lat?: number; lng?: number; q?: string; serviceType?: string; mode?: ServiceMode }) => {
+      const qs = new URLSearchParams();
+      if (params.lat !== undefined) qs.set('lat', String(params.lat));
+      if (params.lng !== undefined) qs.set('lng', String(params.lng));
+      if (params.q) qs.set('q', params.q);
+      if (params.serviceType) qs.set('serviceType', params.serviceType);
+      if (params.mode) qs.set('mode', params.mode);
+      const query = qs.toString();
+      return req<Workshop[]>('GET', `/workshops${query ? `?${query}` : ''}`);
+    },
+    detail: (id: string) => req<WorkshopDetail>('GET', `/workshops/${id}`),
+  },
+  mechanicServices: {
+    list:   ()                              => req<MechanicServiceOffering[]>('GET', '/mechanic/services'),
+    create: (d: UpsertMechanicServiceInput) => req<MechanicServiceOffering>('POST', '/mechanic/services', d),
+    update: (id: string, d: Partial<UpsertMechanicServiceInput>) => req<MechanicServiceOffering>('PATCH', `/mechanic/services/${id}`, d),
+    remove: (id: string)                    => req<void>('DELETE', `/mechanic/services/${id}`),
+  },
+  appointments: {
+    mine:    ()                                  => req<Appointment[]>('GET', '/appointments/mine'),
+    create:  (d: CreateAppointmentInput)         => req<Appointment>('POST', '/appointments', d),
+    respond: (id: string, status: 'confirmed' | 'rejected') => req<Appointment>('POST', `/appointments/${id}/respond`, { status }),
+    complete:(id: string)                        => req<Appointment>('POST', `/appointments/${id}/complete`, {}),
+    cancel:  (id: string)                        => req<Appointment>('POST', `/appointments/${id}/cancel`, {}),
+  },
+  messages: {
+    listAsOwner:    (vid: string, mechanicId: string) => req<ChatMessage[]>('GET', `/vehicles/${vid}/messages?mechanicId=${mechanicId}`),
+    sendAsOwner:    (vid: string, mechanicId: string, body: string) => req<ChatMessage>('POST', `/vehicles/${vid}/messages`, { mechanicId, body }),
+    listAsMechanic: (vid: string) => req<ChatMessage[]>('GET', `/mechanic/vehicles/${vid}/messages`),
+    sendAsMechanic: (vid: string, body: string) => req<ChatMessage>('POST', `/mechanic/vehicles/${vid}/messages`, { body }),
+    unreadCount:    () => req<{ count: number }>('GET', '/messages/unread-count'),
+    conversations:  () => req<Conversation[]>('GET', '/messages/conversations'),
+  },
+  push: {
+    vapidKey:   () => req<{ key: string }>('GET', '/push/vapid-public-key'),
+    subscribe:  (sub: PushSubscriptionJSON) => req<{ ok: boolean }>('POST', '/push/subscribe', sub),
+    unsubscribe:(endpoint: string) => req<{ ok: boolean }>('DELETE', '/push/subscribe', { endpoint }),
+  },
+  parts: {
+    list:   (q?: string) => req<Part[]>('GET', `/mechanic/parts${q ? `?q=${encodeURIComponent(q)}` : ''}`),
+    create: (d: Partial<Part>) => req<Part>('POST', '/mechanic/parts', d),
+    update: (id: string, d: Partial<Part>) => req<Part>('PATCH', `/mechanic/parts/${id}`, d),
+    remove: (id: string) => req<void>('DELETE', `/mechanic/parts/${id}`),
+  },
+  organizations: {
+    mine:           ()                            => req<OrganizationSummary[]>('GET', '/organizations/mine'),
+    create:         (name: string)                => req<OrganizationSummary>('POST', '/organizations', { name }),
+    members:        (id: string)                  => req<OrgMember[]>('GET', `/organizations/${id}/members`),
+    addMember:      (id: string, phone: string, role?: 'admin' | 'driver') => req<OrgMember>('POST', `/organizations/${id}/members`, { phone, role }),
+    removeMember:   (id: string, userId: string)  => req<void>('DELETE', `/organizations/${id}/members/${userId}`),
+    vehicles:       (id: string)                  => req<Vehicle[]>('GET', `/organizations/${id}/vehicles`),
+    assignVehicle:  (id: string, vehicleId: string)   => req<Vehicle>('POST', `/organizations/${id}/vehicles/${vehicleId}`),
+    unassignVehicle:(id: string, vehicleId: string)   => req<void>('DELETE', `/organizations/${id}/vehicles/${vehicleId}`),
+  },
+  payments: {
+    pay: (vid: string, recordId: string) => req<{ paymentUrl: string }>('POST', `/vehicles/${vid}/records/${recordId}/invoice/pay`, {}),
+  },
+  geocode: {
+    reverse: (lat: number, lng: number) => req<{ address: string | null }>('GET', `/geocode/reverse?lat=${lat}&lng=${lng}`),
   },
 };
+
+export async function downloadPdf(path: string, filename: string) {
+  const res = await fetch(`${BASE}${path}`, { headers: { Authorization: `Bearer ${token()}` } });
+  if (!res.ok) throw new Error('دانلود فایل با خطا مواجه شد');
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(url);
+}
 
 export type Role = 'owner' | 'mechanic';
 
@@ -87,7 +176,66 @@ export interface AuthRes { access_token: string; user: User }
 export interface User {
   id: string; phone: string; name: string; role: Role;
   workshopName?: string | null; workshopAddress?: string | null;
+  workshopLat?: number | null; workshopLng?: number | null;
 }
+
+export interface MechanicReview { id: string; rating: number; comment?: string; createdAt: string; ownerName?: string }
+export interface RatingSummary { avg: number; count: number }
+
+export interface Workshop {
+  id: string; workshopName?: string; workshopAddress?: string;
+  workshopLat?: number | null; workshopLng?: number | null;
+  rating: number; reviewCount: number; distanceKm?: number | null;
+}
+export interface WorkshopDetail extends Workshop {
+  services: MechanicServiceOffering[];
+}
+
+export type ServiceMode = 'in_shop' | 'on_site';
+export interface MechanicServiceOffering {
+  id: string; serviceType: string; customName?: string; price?: number;
+  supportsInShop: boolean; supportsOnSite: boolean; createdAt: string;
+}
+export interface UpsertMechanicServiceInput {
+  serviceType: string; customName?: string; price?: number;
+  supportsInShop?: boolean; supportsOnSite?: boolean;
+}
+
+export type AppointmentStatus = 'pending' | 'confirmed' | 'rejected' | 'completed' | 'cancelled';
+export interface Appointment {
+  id: string; vehicleId: string; ownerId: string; mechanicId: string;
+  requestedAt: string; serviceType?: string; notes?: string; status: AppointmentStatus; createdAt: string;
+  mode: ServiceMode; address?: string; lat?: number; lng?: number;
+  vehicle?: { make: string; model: string; year: number; plateNumber?: string };
+  mechanic?: { name: string; workshopName?: string; phone: string };
+  owner?: { name: string; phone: string };
+}
+export interface CreateAppointmentInput {
+  vehicleId: string; mechanicId: string; requestedAt: string; serviceType?: string; notes?: string;
+  mode?: ServiceMode; address?: string; lat?: number; lng?: number;
+}
+
+export interface ChatMessage {
+  id: string; vehicleId: string; mechanicId: string; senderId: string;
+  senderRole: 'owner' | 'mechanic'; body: string; read: boolean; createdAt: string;
+}
+
+export interface Conversation {
+  vehicleId: string; mechanicId: string;
+  vehicle: { make: string; model: string; year: number; plateNumber?: string };
+  counterpartName: string;
+  lastMessage?: string; lastMessageAt?: string;
+  unreadCount: number;
+}
+
+export interface PushSubscriptionJSON { endpoint: string; keys: { p256dh: string; auth: string } }
+
+export interface Part { id: string; name: string; category?: string; sku?: string; unit: string; unitPrice: number; quantity: number; inStock: boolean; createdAt: string }
+
+export interface OrganizationSummary { id: string; name: string; role: 'admin' | 'driver'; createdAt: string }
+export interface OrgMember { id: string; userId: string; name: string; phone: string; role: 'admin' | 'driver' }
+
+export type LinkStatus = 'none' | 'pending' | 'rejected';
 
 export interface Vehicle {
   id: string; make: string; model: string; year: number;
@@ -95,6 +243,7 @@ export interface Vehicle {
   fuelType?: string; engineCapacity?: string; transmission?: string;
   insuranceExpiry?: string; technicalExpiry?: string; registrationExpiry?: string;
   createdAt: string; serviceRecords?: ServiceRecord[];
+  linkStatus?: LinkStatus; customerName?: string;
 }
 
 export interface InvoiceSummary {
@@ -120,17 +269,29 @@ export interface Invoice {
 
 export interface Invite { id: string; code: string; expiresAt: string; vehicleId: string }
 export interface VehicleAccessEntry {
-  id: string; workshopName?: string; workshopAddress?: string; mechanicPhone?: string; grantedAt: string;
+  id: string; mechanicId: string; workshopName?: string; workshopAddress?: string; mechanicPhone?: string; grantedAt: string;
 }
 
 export interface MechanicVehicle {
   accessId: string; vehicleId: string; make: string; model: string; year: number;
   plateNumber?: string; currentMileage: number; ownerName?: string; grantedAt: string;
+  linkStatus?: LinkStatus; customerName?: string;
 }
 export interface MechanicVehicleDetail {
   id: string; make: string; model: string; year: number; plateNumber?: string; color?: string;
   currentMileage: number; fuelType?: string; engineCapacity?: string; transmission?: string;
   ownerName?: string; serviceRecords: ServiceRecord[];
+  linkStatus?: LinkStatus; customerName?: string;
+}
+export interface CreateMechanicVehicleInput {
+  make: string; model: string; year: number;
+  plateNumber?: string; customerName?: string; color?: string; currentMileage?: number; notes?: string;
+}
+
+export interface AppNotification {
+  id: string; type: string; status: 'pending' | 'confirmed' | 'rejected';
+  title: string; body: string; read: boolean; createdAt: string;
+  data?: { mechanicVehicleId: string; realVehicleId: string; mechanicId: string; workshopName?: string; plateNumber?: string } | null;
 }
 
 export interface FuelLog {

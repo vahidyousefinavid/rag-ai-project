@@ -4,10 +4,12 @@ import { useRouter, useParams, useSearchParams } from 'next/navigation';
 import Navbar from '@/components/Navbar';
 import BottomNav from '@/components/BottomNav';
 import {
-  api, Vehicle, ServiceRecord, FuelLog, FuelStats, VehicleDoc, Reminder,
+  api, downloadPdf, Vehicle, ServiceRecord, FuelLog, FuelStats, VehicleDoc, Reminder,
   SERVICE_TYPES, DOC_TYPES, FUEL_TYPES, COLORS_HEX, daysUntil, expiryStatus, toJalali,
 } from '@/lib/api';
 import PersianDatePicker from '@/components/PersianDatePicker';
+import Chat from '@/components/Chat';
+import { svcMeta } from '@/components/serviceMeta';
 import {
   C, STATUS_THEME,
   Card, SectionCard, Button, IconButton, FormField, Input,
@@ -16,9 +18,9 @@ import {
 import {
   ChevronRightIcon, ChevronDownIcon, ChevronUpIcon, PlusIcon, XIcon, TrashIcon,
   CarIcon, ShieldIcon, SearchIcon, FileTextIcon, WrenchIcon, FuelIcon, BellIcon,
-  SparklesIcon, WalletIcon, CalendarIcon, RoadIcon, PinIcon, DropletIcon, CircleIcon,
-  AlertTriangleIcon, SettingsIcon, LinkIcon, BatteryIcon, SnowflakeIcon, PaintbrushIcon,
-  GaugeIcon, FilterIcon, DiscIcon, PaperclipIcon, CheckIcon, IranFlag, CopyIcon, UserPlusIcon,
+  SparklesIcon, WalletIcon, CalendarIcon, RoadIcon, PinIcon, CircleIcon,
+  AlertTriangleIcon, CheckIcon, IranFlag, CopyIcon, UserPlusIcon,
+  MessageIcon, DownloadIcon, CreditCardIcon, SettingsIcon, GaugeIcon, PaperclipIcon,
 } from '@/components/icons';
 import type { VehicleAccessEntry } from '@/lib/api';
 
@@ -33,34 +35,6 @@ const TABS: { id: Tab; label: string; icon: IconComp }[] = [
   { id: 'reminders',  label: 'یادآورها', icon: BellIcon },
   { id: 'ai',         label: 'دستیار',   icon: SparklesIcon },
 ];
-
-const SERVICE_META: Record<string, { color: string; icon: IconComp }> = {
-  'تعویض روغن موتور': { color: '#FBBF24', icon: DropletIcon },
-  'تعویض لاستیک':     { color: '#60A5FA', icon: CircleIcon },
-  'تعمیر ترمز':       { color: '#F87171', icon: DiscIcon },
-  'تعویض فیلتر هوا':  { color: '#34D399', icon: FilterIcon },
-  'تعویض شمع':        { color: '#A78BFA', icon: ZapIconLocal },
-  'سرویس گیربکس':     { color: '#818CF8', icon: SettingsIcon },
-  'تعویض تایمینگ':    { color: '#F472B6', icon: LinkIcon },
-  'تعویض باتری':      { color: '#FB923C', icon: BatteryIcon },
-  'تنظیم موتور':      { color: '#2DD4BF', icon: WrenchIcon },
-  'سرویس کولر':       { color: '#22D3EE', icon: SnowflakeIcon },
-  'صافکاری و رنگ':    { color: '#C084FC', icon: PaintbrushIcon },
-  'سرویس جلوبندی':    { color: '#A3E635', icon: GaugeIcon },
-  'سایر':             { color: '#94A3B8', icon: FileTextIcon },
-};
-
-function ZapIconLocal(p: { size?: number }) {
-  return (
-    <svg width={p.size ?? 20} height={p.size ?? 20} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round">
-      <path d="M13 2 4 14h6l-1 8 9-12h-6l1-8Z" />
-    </svg>
-  );
-}
-
-function svcMeta(type: string) {
-  return SERVICE_META[type] ?? { color: C.green, icon: WrenchIcon };
-}
 
 /* ─── Page ──────────────────────────────────────────────────────── */
 export default function VehiclePage() {
@@ -462,6 +436,7 @@ function ConnectedMechanics({ vehicleId }: { vehicleId: string }) {
   const [list, setList] = useState<VehicleAccessEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [showInvite, setShowInvite] = useState(false);
+  const [chatWith, setChatWith] = useState<VehicleAccessEntry | null>(null);
 
   function load() {
     api.access.list(vehicleId).then(setList).finally(() => setLoading(false));
@@ -500,12 +475,22 @@ function ConnectedMechanics({ vehicleId }: { vehicleId: string }) {
                   {m.mechanicPhone}
                 </p>
               </div>
+              <IconButton label="پیام" onClick={() => setChatWith(m)} size={30}><MessageIcon size={14} /></IconButton>
               <IconButton label="لغو دسترسی" onClick={() => revoke(m.id)} size={30}><TrashIcon size={14} /></IconButton>
             </div>
           ))}
         </div>
       )}
       {showInvite && <InviteMechanicSheet vehicleId={vehicleId} onClose={() => setShowInvite(false)} onGranted={load} />}
+      {chatWith && (
+        <Chat
+          vehicleId={vehicleId}
+          mechanicId={chatWith.mechanicId}
+          role="owner"
+          title={`گفتگو · ${chatWith.workshopName || 'تعمیرگاه'}`}
+          onClose={() => setChatWith(null)}
+        />
+      )}
     </SectionCard>
   );
 }
@@ -564,6 +549,7 @@ function InviteMechanicSheet({ vehicleId, onClose, onGranted }: { vehicleId: str
 /* ─── Records ──────────────────────────────────────────────────── */
 function RecordsTab({ vehicle, onRefresh }: { vehicle: Vehicle; onRefresh: () => void }) {
   const [showAdd, setShowAdd] = useState(false);
+  const [editing, setEditing] = useState<ServiceRecord | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [records, setRecords] = useState<ServiceRecord[]>(vehicle.serviceRecords || []);
 
@@ -656,7 +642,16 @@ function RecordsTab({ vehicle, onRefresh }: { vehicle: Vehicle; onRefresh: () =>
             </span>
           )}
         </h2>
-        <Button size="sm" onClick={() => setShowAdd(true)} icon={<PlusIcon size={15} />}>ثبت سرویس</Button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          {records.length > 0 && (
+            <IconButton
+              label="دانلود سابقه به‌صورت PDF"
+              size={34}
+              onClick={() => downloadPdf(`/vehicles/${vehicle.id}/records/pdf`, `history-${vehicle.id}.pdf`)}
+            ><DownloadIcon size={15} /></IconButton>
+          )}
+          <Button size="sm" onClick={() => setShowAdd(true)} icon={<PlusIcon size={15} />}>ثبت سرویس</Button>
+        </div>
       </div>
 
       {records.length === 0 ? (
@@ -778,9 +773,16 @@ function RecordsTab({ vehicle, onRefresh }: { vehicle: Vehicle; onRefresh: () =>
                           </div>
                         )}
                         {r.invoice && <InvoiceDetails vehicleId={vehicle.id} recordId={r.id} />}
-                        <Button variant="danger" size="sm" onClick={() => del(r.id)} icon={<TrashIcon size={14} />} style={{ alignSelf: 'flex-start' }}>
-                          حذف سرویس
-                        </Button>
+                        <div style={{ display: 'flex', gap: 8 }}>
+                          {r.createdByRole !== 'mechanic' && (
+                            <Button variant="secondary" size="sm" onClick={() => setEditing(r)} icon={<SettingsIcon size={14} />}>
+                              ویرایش
+                            </Button>
+                          )}
+                          <Button variant="danger" size="sm" onClick={() => del(r.id)} icon={<TrashIcon size={14} />}>
+                            حذف سرویس
+                          </Button>
+                        </div>
                       </div>
                     )}
                   </div>
@@ -792,16 +794,48 @@ function RecordsTab({ vehicle, onRefresh }: { vehicle: Vehicle; onRefresh: () =>
       )}
 
       {showAdd && <AddServiceModal vehicleId={vehicle.id} onClose={() => setShowAdd(false)} onSaved={refreshAll} />}
+      {editing && (
+        <AddServiceModal
+          vehicleId={vehicle.id}
+          record={editing}
+          onClose={() => setEditing(null)}
+          onSaved={refreshAll}
+        />
+      )}
     </div>
   );
 }
 
 function InvoiceDetails({ vehicleId, recordId }: { vehicleId: string; recordId: string }) {
   const [invoice, setInvoice] = useState<import('@/lib/api').Invoice | null>(null);
+  const [downloading, setDownloading] = useState(false);
+  const [paying, setPaying] = useState(false);
+  const [payError, setPayError] = useState('');
 
   useEffect(() => {
     api.invoices.get(vehicleId, recordId).then(setInvoice).catch(() => {});
   }, [vehicleId, recordId]);
+
+  async function download() {
+    setDownloading(true);
+    try {
+      await downloadPdf(`/vehicles/${vehicleId}/records/${recordId}/invoice/pdf`, `invoice-${recordId}.pdf`);
+    } finally {
+      setDownloading(false);
+    }
+  }
+
+  async function pay() {
+    setPaying(true);
+    setPayError('');
+    try {
+      const { paymentUrl } = await api.payments.pay(vehicleId, recordId);
+      window.location.href = paymentUrl;
+    } catch (err: any) {
+      setPayError(err.message);
+      setPaying(false);
+    }
+  }
 
   if (!invoice) return null;
 
@@ -838,6 +872,23 @@ function InvoiceDetails({ vehicleId, recordId }: { vehicleId: string; recordId: 
         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11.5, color: C.muted }}>
           <span>پرداخت‌شده</span><span>{invoice.paidAmount.toLocaleString()} ت</span>
         </div>
+      </div>
+
+      {payError && (
+        <div style={{ fontSize: 11, color: '#F87171', background: 'rgba(239,68,68,0.10)', border: '1px solid rgba(239,68,68,0.20)', borderRadius: 9, padding: '8px 12px', marginTop: 9 }}>
+          {payError}
+        </div>
+      )}
+
+      <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+        <Button size="sm" variant="secondary" fullWidth loading={downloading} onClick={download} icon={<DownloadIcon size={13} />}>
+          دانلود PDF
+        </Button>
+        {invoice.paymentStatus !== 'paid' && (
+          <Button size="sm" fullWidth loading={paying} onClick={pay} icon={<CreditCardIcon size={13} />}>
+            پرداخت آنلاین
+          </Button>
+        )}
       </div>
     </div>
   );
@@ -1324,27 +1375,39 @@ function AiTab({ vehicleId }: { vehicleId: string }) {
 }
 
 /* ─── Modals ───────────────────────────────────────────────────── */
-function AddServiceModal({ vehicleId, onClose, onSaved }: { vehicleId: string; onClose: () => void; onSaved: () => void }) {
+function AddServiceModal({ vehicleId, record, onClose, onSaved }: { vehicleId: string; record?: ServiceRecord | null; onClose: () => void; onSaved: () => void }) {
+  const isEdit = !!record;
   const [f, setF] = useState({
-    serviceType: SERVICE_TYPES[0], serviceDate: today(), mileage: '',
-    description: '', cost: '', workshop: '', nextServiceMileage: '', nextServiceDate: '',
+    serviceType: record?.serviceType || SERVICE_TYPES[0],
+    serviceDate: record?.serviceDate || today(),
+    mileage: record?.mileage ? String(record.mileage) : '',
+    description: record?.description || '',
+    cost: record?.cost ? String(record.cost) : '',
+    workshop: record?.workshop || '',
+    nextServiceMileage: record?.nextServiceMileage ? String(record.nextServiceMileage) : '',
+    nextServiceDate: record?.nextServiceDate || '',
   });
   const [loading, setLoading] = useState(false);
   const set = (k: string, v: string) => setF(p => ({ ...p, [k]: v }));
 
   async function submit(e: React.FormEvent) {
     e.preventDefault(); setLoading(true);
-    await api.records.create(vehicleId, {
+    const payload = {
       serviceType: f.serviceType, serviceDate: f.serviceDate, mileage: n(f.mileage),
       cost: n(f.cost), nextServiceMileage: n(f.nextServiceMileage),
       description: f.description || undefined, workshop: f.workshop || undefined,
       nextServiceDate: f.nextServiceDate || undefined,
-    });
+    };
+    if (isEdit) {
+      await api.records.update(vehicleId, record!.id, payload);
+    } else {
+      await api.records.create(vehicleId, payload);
+    }
     onSaved(); onClose();
   }
 
   return (
-    <Sheet title="ثبت سرویس جدید" icon={<WrenchIcon size={17} />} onClose={onClose}>
+    <Sheet title={isEdit ? 'ویرایش سرویس' : 'ثبت سرویس جدید'} icon={<WrenchIcon size={17} />} onClose={onClose}>
       <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
         <FormField label="نوع سرویس">
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
@@ -1403,7 +1466,9 @@ function AddServiceModal({ vehicleId, onClose, onSaved }: { vehicleId: string; o
             <PersianDatePicker value={f.nextServiceDate} onChange={v => set('nextServiceDate', v)} />
           </FormField>
         </div>
-        <Button type="submit" loading={loading} fullWidth size="lg" icon={<CheckIcon size={16} />}>ثبت سرویس</Button>
+        <Button type="submit" loading={loading} fullWidth size="lg" icon={<CheckIcon size={16} />}>
+          {isEdit ? 'ذخیره تغییرات' : 'ثبت سرویس'}
+        </Button>
       </form>
     </Sheet>
   );

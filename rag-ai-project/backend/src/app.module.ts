@@ -10,6 +10,7 @@ import { User } from './database/entities/user.entity';
 import { ChatSession } from './database/entities/chat-session.entity';
 import { Message } from './database/entities/message.entity';
 import { RagSource } from './sources/entities/source.entity';
+import { SourceProfile } from './sources/entities/source-profile.entity';
 
 @Module({
   imports: [
@@ -27,7 +28,7 @@ import { RagSource } from './sources/entities/source.entity';
         username: config.get<string>('postgres.username'),
         password: config.get<string>('postgres.password'),
         database: config.get<string>('postgres.database'),
-        entities: [User, ChatSession, Message, RagSource],
+        entities: [User, ChatSession, Message, RagSource, SourceProfile],
         synchronize: true,
         logging: false,
       }),

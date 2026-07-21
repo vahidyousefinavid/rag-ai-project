@@ -4,6 +4,7 @@ import { DataSource, Repository } from 'typeorm';
 import { Invoice } from './invoice.entity';
 import { InvoiceItem } from './invoice-item.entity';
 import { ServiceRecord } from '../service-records/service-record.entity';
+import { Vehicle } from '../vehicles/vehicle.entity';
 import { VehicleAccessService } from '../vehicle-access/vehicle-access.service';
 
 export interface InvoiceItemInput {
@@ -25,6 +26,7 @@ export class InvoicesService {
   constructor(
     @InjectRepository(Invoice) private invoices: Repository<Invoice>,
     @InjectRepository(ServiceRecord) private records: Repository<ServiceRecord>,
+    @InjectRepository(Vehicle) private vehicles: Repository<Vehicle>,
     private access: VehicleAccessService,
     private dataSource: DataSource,
   ) {}
@@ -88,6 +90,16 @@ export class InvoicesService {
     if (!invoice) throw new NotFoundException();
     if (!resolution.isOwner && invoice.createdByUserId !== userId) throw new ForbiddenException();
     await this.invoices.remove(invoice);
+  }
+
+  async getFullForPdf(vehicleId: string, recordId: string, userId: string) {
+    const record = await this.getRecordForVehicle(vehicleId, recordId);
+    await this.access.assertAccess(vehicleId, userId, ['owner', 'mechanic']);
+    const vehicle = await this.vehicles.findOne({ where: { id: vehicleId } });
+    if (!vehicle) throw new NotFoundException();
+    const invoice = await this.invoices.findOne({ where: { serviceRecordId: recordId }, relations: ['items'] });
+    if (!invoice) throw new NotFoundException();
+    return { vehicle, record, invoice: this.toResponse(invoice) };
   }
 
   private async getRecordForVehicle(vehicleId: string, recordId: string) {

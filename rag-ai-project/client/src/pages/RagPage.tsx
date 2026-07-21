@@ -114,6 +114,7 @@ export default function RagPage() {
                   source={src}
                   active={activeSource === src.id}
                   syncLabel={t.ragSync}
+                  continueLabel={t.ragContinue}
                   deleteLabel={t.ragDelete}
                   indexingLabel={t.ragIndexing}
                   chunksLabel={t.ragChunksLabel}
@@ -365,9 +366,9 @@ function SidebarEmpty({ label, addLabel, onAdd }: { label: string; addLabel: str
 }
 
 /* ── Source card ────────────────────────────────────────────────── */
-function SourceCard({ source, active, syncLabel, deleteLabel, indexingLabel, chunksLabel, onSelect, onIngest, onDelete }: {
+function SourceCard({ source, active, syncLabel, continueLabel, deleteLabel, indexingLabel, chunksLabel, onSelect, onIngest, onDelete }: {
   source: RagSource; active: boolean;
-  syncLabel: string; deleteLabel: string; indexingLabel: string; chunksLabel: string;
+  syncLabel: string; continueLabel: string; deleteLabel: string; indexingLabel: string; chunksLabel: string;
   onSelect: () => void; onIngest: () => void; onDelete: () => void;
 }) {
   const [hovered, setHovered] = useState(false)
@@ -410,7 +411,9 @@ function SourceCard({ source, active, syncLabel, deleteLabel, indexingLabel, chu
           </div>
           {source.docCount > 0 && (
             <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 3 }}>
-              {source.docCount.toLocaleString()} {chunksLabel}
+              {source.docCount.toLocaleString()}
+              {source.status === 'indexing' && source.totalChunks ? ` / ${source.totalChunks.toLocaleString()}` : ''}
+              {' '}{chunksLabel}
             </div>
           )}
           {source.lastError && (
@@ -434,11 +437,9 @@ function SourceCard({ source, active, syncLabel, deleteLabel, indexingLabel, chu
           transition: 'max-height .15s,opacity .15s,padding .15s,margin .15s',
         }}
       >
-        {source.sourceType !== 'file' && (
-          <MiniBtn onClick={onIngest} disabled={source.status === 'indexing'} color="#7c3aed">
-            {Ic.refresh} {syncLabel}
-          </MiniBtn>
-        )}
+        <MiniBtn onClick={onIngest} color="#7c3aed">
+          {Ic.refresh} {source.status === 'indexing' || source.status === 'error' ? continueLabel : syncLabel}
+        </MiniBtn>
         <MiniBtn onClick={onDelete} color="#ef4444">
           {Ic.trash} {deleteLabel}
         </MiniBtn>

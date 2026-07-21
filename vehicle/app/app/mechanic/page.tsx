@@ -4,9 +4,10 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import Navbar from '@/components/Navbar';
 import BottomNav from '@/components/BottomNav';
-import { api, MechanicVehicle } from '@/lib/api';
-import { C, Card, StatGrid, EmptyState, SkeletonRow, Button, Input, FormField } from '@/components/ui';
-import { CarIcon, WrenchIcon, WalletIcon, ChevronLeftIcon, LinkIcon } from '@/components/icons';
+import PlateInput from '@/components/PlateInput';
+import { api, MechanicVehicle, CreateMechanicVehicleInput } from '@/lib/api';
+import { C, Card, StatGrid, EmptyState, SkeletonRow, Button, Input, FormField, Sheet } from '@/components/ui';
+import { CarIcon, WrenchIcon, WalletIcon, ChevronLeftIcon, LinkIcon, PlusIcon, CheckIcon } from '@/components/icons';
 
 function isThisMonth(dateStr: string) {
   const d = new Date(dateStr);
@@ -25,6 +26,7 @@ export default function MechanicDashboard() {
   const [code, setCode]         = useState('');
   const [redeeming, setRedeeming] = useState(false);
   const [redeemError, setRedeemError] = useState('');
+  const [showAddVehicle, setShowAddVehicle] = useState(false);
 
   function load() {
     setLoading(true);
@@ -99,6 +101,21 @@ export default function MechanicDashboard() {
           <StatGrid stats={stats} />
         </div>
 
+        <Card style={{ marginBottom: 14 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 14 }}>
+            <div style={{
+              width: 30, height: 30, borderRadius: 10,
+              background: 'rgba(34,197,94,0.12)', border: `1px solid ${C.green}30`,
+              display: 'flex', alignItems: 'center', justifyContent: 'center', color: C.green,
+            }}><CarIcon size={15} /></div>
+            <h2 style={{ fontSize: 14, fontWeight: 800, color: C.text, margin: 0 }}>افزودن ماشین با پلاک</h2>
+          </div>
+          <p style={{ fontSize: 12, color: C.muted, margin: '0 0 14px', lineHeight: 1.7 }}>
+            بدون نیاز به کد دعوت — فقط پلاک و مشخصات ماشین رو وارد کن و همین الان سرویس ثبت کن.
+          </p>
+          <Button fullWidth icon={<PlusIcon size={15} />} onClick={() => setShowAddVehicle(true)}>افزودن ماشین جدید</Button>
+        </Card>
+
         <Card style={{ marginBottom: 20 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 14 }}>
             <div style={{
@@ -106,7 +123,7 @@ export default function MechanicDashboard() {
               background: 'rgba(34,197,94,0.12)', border: `1px solid ${C.green}30`,
               display: 'flex', alignItems: 'center', justifyContent: 'center', color: C.green,
             }}><LinkIcon size={15} /></div>
-            <h2 style={{ fontSize: 14, fontWeight: 800, color: C.text, margin: 0 }}>اتصال به خودرو جدید</h2>
+            <h2 style={{ fontSize: 14, fontWeight: 800, color: C.text, margin: 0 }}>اتصال با کد دعوت مالک</h2>
           </div>
           <form onSubmit={redeem} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             <FormField label="کد دعوت مالک خودرو">
@@ -159,6 +176,13 @@ export default function MechanicDashboard() {
                     <p style={{ color: C.muted, fontSize: 12, fontWeight: 500, margin: '3px 0 0' }}>
                       مالک: {v.ownerName || '—'} {v.plateNumber ? `· ${v.plateNumber}` : ''}
                     </p>
+                    {v.linkStatus === 'pending' && (
+                      <span style={{
+                        display: 'inline-block', marginTop: 6, fontSize: 10, fontWeight: 800,
+                        color: '#FBBF24', background: 'rgba(245,158,11,0.14)',
+                        padding: '2px 9px', borderRadius: 8,
+                      }}>در انتظار تایید مالک</span>
+                    )}
                   </div>
                   <ChevronLeftIcon size={16} color={C.subtle} />
                 </div>
@@ -167,7 +191,77 @@ export default function MechanicDashboard() {
           </div>
         )}
       </main>
+
+      {showAddVehicle && (
+        <AddVehicleSheet
+          onClose={() => setShowAddVehicle(false)}
+          onSaved={(vehicleId) => { setShowAddVehicle(false); load(); router.push(`/mechanic/vehicles/${vehicleId}`); }}
+        />
+      )}
       <BottomNav />
     </div>
+  );
+}
+
+function AddVehicleSheet({ onClose, onSaved }: { onClose: () => void; onSaved: (vehicleId: string) => void }) {
+  const [form, setForm] = useState({
+    make: '', model: '', year: new Date().getFullYear(), plateNumber: '', customerName: '',
+  });
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  function set(key: string, val: string | number) { setForm(f => ({ ...f, [key]: val })); }
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setLoading(true);
+    setError('');
+    try {
+      const payload: CreateMechanicVehicleInput = {
+        make: form.make,
+        model: form.model,
+        year: Number(form.year),
+        plateNumber: form.plateNumber || undefined,
+        customerName: form.customerName || undefined,
+      };
+      const v = await api.mechanic.createVehicle(payload);
+      onSaved(v.id);
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <Sheet title="افزودن ماشین جدید" icon={<CarIcon size={17} />} onClose={onClose}>
+      <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <FormField label="شماره پلاک">
+          <PlateInput value={form.plateNumber} onChange={v => set('plateNumber', v)} />
+        </FormField>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <FormField label="سازنده" required>
+            <Input placeholder="Toyota / ایران‌خودرو" value={form.make} onChange={e => set('make', e.target.value)} required />
+          </FormField>
+          <FormField label="مدل" required>
+            <Input placeholder="Camry / پژو 206" value={form.model} onChange={e => set('model', e.target.value)} required />
+          </FormField>
+        </div>
+        <FormField label="سال ساخت" required>
+          <Input type="number" value={String(form.year)} onChange={e => set('year', Number(e.target.value))} required />
+        </FormField>
+        <FormField label="نام مشتری (اختیاری)">
+          <Input placeholder="اگر مشتری هنوز در برنامه ثبت‌نام نکرده" value={form.customerName} onChange={e => set('customerName', e.target.value)} />
+        </FormField>
+
+        {error && (
+          <div style={{ fontSize: 12, color: '#F87171', background: 'rgba(239,68,68,0.10)', border: '1px solid rgba(239,68,68,0.20)', borderRadius: 11, padding: '10px 14px' }}>
+            {error}
+          </div>
+        )}
+
+        <Button type="submit" loading={loading} fullWidth size="lg" icon={<CheckIcon size={16} />}>ثبت ماشین</Button>
+      </form>
+    </Sheet>
   );
 }

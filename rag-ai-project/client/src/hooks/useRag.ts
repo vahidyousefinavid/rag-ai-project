@@ -10,6 +10,7 @@ export interface RagSource {
   config: Record<string, any>
   status: SourceStatus
   docCount: number
+  totalChunks: number | null
   lastError: string | null
   createdAt: string
 }
@@ -50,9 +51,14 @@ export function useRag() {
   const fetchSources = useCallback(async () => {
     try {
       const res = await fetch('/sources')
-      if (res.ok) setSources(await res.json())
+      if (!res.ok) return
+      const list: RagSource[] = await res.json()
+      setSources(list)
+      // Picks up ingestion that's still running from before a page reload (or that the
+      // backend auto-resumed after a restart) so progress keeps showing without a click.
+      if (list.some(s => s.status === 'indexing')) startPolling()
     } catch { /* silent */ }
-  }, [])
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   /* ── Create DB source ────────────────────────────────────────── */
 
@@ -84,7 +90,7 @@ export function useRag() {
   const ingestSource = useCallback(async (id: string) => {
     await fetch(`/sources/${id}/ingest`, { method: 'POST' })
     setSources(s => s.map(x => x.id === id ? { ...x, status: 'indexing' } : x))
-    startPolling(id)
+    startPolling()
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   /* ── Upload file ─────────────────────────────────────────────── */
@@ -97,7 +103,7 @@ export function useRag() {
     if (!res.ok) throw new Error(await errorMessage(res, 'Upload failed'))
     const source: RagSource = await res.json()
     setSources(s => [source, ...s])
-    if (source.status === 'indexing') startPolling(source.id)
+    if (source.status === 'indexing') startPolling()
     return source
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -115,18 +121,17 @@ export function useRag() {
     return res.json()
   }, [])
 
-  /* ── Poll source until ready/error ──────────────────────────── */
+  /* ── Poll while any source is indexing (progress + auto-stop) ─── */
 
-  function startPolling(id: string) {
-    if (pollRef.current) clearInterval(pollRef.current)
+  function startPolling() {
+    if (pollRef.current) return
     pollRef.current = setInterval(async () => {
       try {
         const res = await fetch('/sources')
         if (!res.ok) return
         const list: RagSource[] = await res.json()
         setSources(list)
-        const source = list.find(s => s.id === id)
-        if (!source || source.status === 'ready' || source.status === 'error') {
+        if (!list.some(s => s.status === 'indexing')) {
           clearInterval(pollRef.current!)
           pollRef.current = null
         }

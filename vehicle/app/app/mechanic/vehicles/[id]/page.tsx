@@ -4,8 +4,10 @@ import { useRouter, useParams } from 'next/navigation';
 import Navbar from '@/components/Navbar';
 import BottomNav from '@/components/BottomNav';
 import PersianDatePicker from '@/components/PersianDatePicker';
+import PartsCatalogPicker from '@/components/PartsCatalogPicker';
+import Chat from '@/components/Chat';
 import {
-  api, MechanicVehicleDetail, SERVICE_TYPES, InvoiceItem, toJalali,
+  api, MechanicVehicleDetail, ServiceRecord, SERVICE_TYPES, InvoiceItem, Part, toJalali,
 } from '@/lib/api';
 import {
   C, Card, IconBadge, Button, IconButton, FormField, Input, ChipGroup, Sheet,
@@ -13,7 +15,7 @@ import {
 } from '@/components/ui';
 import {
   ChevronRightIcon, CarIcon, WrenchIcon, CalendarIcon, RoadIcon, WalletIcon,
-  PlusIcon, XIcon, CheckIcon,
+  PlusIcon, XIcon, CheckIcon, SettingsIcon, BoxIcon, MessageIcon,
 } from '@/components/icons';
 
 function today() { return new Date().toISOString().slice(0, 10); }
@@ -24,6 +26,9 @@ export default function MechanicVehiclePage() {
   const [vehicle, setVehicle] = useState<MechanicVehicleDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
+  const [editing, setEditing] = useState<ServiceRecord | null>(null);
+  const [showChat, setShowChat] = useState(false);
+  const [selfId, setSelfId] = useState('');
 
   function load() {
     api.mechanic.getVehicle(id).then(setVehicle).finally(() => setLoading(false));
@@ -34,6 +39,7 @@ export default function MechanicVehiclePage() {
     try {
       const u = JSON.parse(localStorage.getItem('vuser') || '{}');
       if (u.role !== 'mechanic') { router.replace('/dashboard'); return; }
+      setSelfId(u.id);
     } catch {}
     load();
   }, [id, router]);
@@ -76,6 +82,23 @@ export default function MechanicVehiclePage() {
               <p style={{ color: 'rgba(255,255,255,0.45)', fontSize: 11, fontWeight: 500, margin: '4px 0 0' }}>
                 مالک: {vehicle.ownerName || '—'}
               </p>
+              {vehicle.linkStatus !== 'pending' && (
+                <button
+                  onClick={() => setShowChat(true)}
+                  style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 9,
+                    background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.15)',
+                    color: 'white', fontSize: 11, fontWeight: 700, padding: '5px 12px', borderRadius: 10,
+                  }}
+                ><MessageIcon size={12} /> پیام به مالک</button>
+              )}
+              {vehicle.linkStatus === 'pending' && (
+                <span style={{
+                  display: 'inline-block', marginTop: 8, fontSize: 11, fontWeight: 800,
+                  color: '#FBBF24', background: 'rgba(245,158,11,0.16)', border: '1px solid rgba(245,158,11,0.30)',
+                  padding: '3px 11px', borderRadius: 9,
+                }}>در انتظار تایید مالک</span>
+              )}
             </div>
           </div>
           <div style={{ display: 'flex', gap: 7 }}>
@@ -130,6 +153,7 @@ export default function MechanicVehiclePage() {
                       {(r.invoice.total / 1000).toFixed(0)}K ت
                     </span>
                   )}
+                  <IconButton label="ویرایش سرویس" onClick={() => setEditing(r)} size={30}><SettingsIcon size={14} /></IconButton>
                 </div>
               </Card>
             ))}
@@ -144,19 +168,47 @@ export default function MechanicVehiclePage() {
           onSaved={() => { setShowAdd(false); load(); }}
         />
       )}
+      {editing && (
+        <AddServiceWithInvoiceSheet
+          vehicleId={id}
+          record={editing}
+          onClose={() => setEditing(null)}
+          onSaved={() => { setEditing(null); load(); }}
+        />
+      )}
+      {showChat && selfId && (
+        <Chat vehicleId={id} mechanicId={selfId} role="mechanic" title={`گفتگو · ${vehicle.ownerName || 'مالک'}`} onClose={() => setShowChat(false)} />
+      )}
       <BottomNav />
     </div>
   );
 }
 
-function AddServiceWithInvoiceSheet({ vehicleId, onClose, onSaved }: { vehicleId: string; onClose: () => void; onSaved: () => void }) {
-  const [f, setF] = useState({ serviceType: SERVICE_TYPES[0], serviceDate: today(), mileage: '', description: '' });
-  const [withInvoice, setWithInvoice] = useState(true);
+function AddServiceWithInvoiceSheet({ vehicleId, record, onClose, onSaved }: { vehicleId: string; record?: ServiceRecord | null; onClose: () => void; onSaved: () => void }) {
+  const isEdit = !!record;
+  const [f, setF] = useState({
+    serviceType: record?.serviceType || SERVICE_TYPES[0],
+    serviceDate: record?.serviceDate || today(),
+    mileage: record?.mileage ? String(record.mileage) : '',
+    description: record?.description || '',
+  });
+  const [withInvoice, setWithInvoice] = useState(!isEdit || !!record?.invoice);
   const [items, setItems] = useState<InvoiceItem[]>([{ type: 'part', name: '', quantity: 1, unitPrice: 0 }]);
+  const [showCatalog, setShowCatalog] = useState(false);
   const [discount, setDiscount] = useState('0');
   const [paidAmount, setPaidAmount] = useState('0');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const hadInvoice = !!record?.invoice;
+
+  useEffect(() => {
+    if (!record?.invoice) return;
+    api.invoices.get(vehicleId, record.id).then(inv => {
+      setItems(inv.items.map(i => ({ type: i.type, name: i.name, quantity: i.quantity, unitPrice: i.unitPrice })));
+      setDiscount(String(inv.discount));
+      setPaidAmount(String(inv.paidAmount));
+    }).catch(() => {});
+  }, [vehicleId, record?.id, record?.invoice]);
 
   const set = (k: string, v: string) => setF(p => ({ ...p, [k]: v }));
 
@@ -165,6 +217,15 @@ function AddServiceWithInvoiceSheet({ vehicleId, onClose, onSaved }: { vehicleId
   }
   function addItem() { setItems(prev => [...prev, { type: 'part', name: '', quantity: 1, unitPrice: 0 }]); }
   function removeItem(i: number) { setItems(prev => prev.filter((_, idx) => idx !== i)); }
+  function pickFromCatalog(part: Part) {
+    setItems(prev => {
+      const emptyIdx = prev.findIndex(it => !it.name.trim());
+      const newItem: InvoiceItem = { type: 'part', name: part.name, quantity: 1, unitPrice: part.unitPrice };
+      if (emptyIdx >= 0) return prev.map((it, idx) => (idx === emptyIdx ? newItem : it));
+      return [...prev, newItem];
+    });
+    setShowCatalog(false);
+  }
 
   const subtotal = items.reduce((s, i) => s + (Number(i.quantity) || 0) * (Number(i.unitPrice) || 0), 0);
   const total = Math.max(0, subtotal - (Number(discount) || 0));
@@ -174,21 +235,25 @@ function AddServiceWithInvoiceSheet({ vehicleId, onClose, onSaved }: { vehicleId
     setLoading(true);
     setError('');
     try {
-      const record = await api.records.create(vehicleId, {
+      const base = {
         serviceType: f.serviceType,
         serviceDate: f.serviceDate,
         mileage: f.mileage ? Number(f.mileage) : undefined,
         description: f.description || undefined,
-      });
+      };
+      const saved = isEdit ? await api.records.update(vehicleId, record!.id, base) : await api.records.create(vehicleId, base);
+
       if (withInvoice) {
         const validItems = items.filter(i => i.name.trim() && i.quantity > 0);
         if (validItems.length > 0) {
-          await api.invoices.upsert(vehicleId, record.id, {
+          await api.invoices.upsert(vehicleId, saved.id, {
             discount: Number(discount) || 0,
             paidAmount: Number(paidAmount) || 0,
             items: validItems,
           });
         }
+      } else if (hadInvoice) {
+        await api.invoices.remove(vehicleId, saved.id);
       }
       onSaved();
     } catch (err: any) {
@@ -199,7 +264,7 @@ function AddServiceWithInvoiceSheet({ vehicleId, onClose, onSaved }: { vehicleId
   }
 
   return (
-    <Sheet title="ثبت سرویس جدید" icon={<WrenchIcon size={17} />} onClose={onClose}>
+    <Sheet title={isEdit ? 'ویرایش سرویس' : 'ثبت سرویس جدید'} icon={<WrenchIcon size={17} />} onClose={onClose}>
       <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
         <FormField label="نوع سرویس">
           <ChipGroup options={SERVICE_TYPES} value={f.serviceType} onChange={v => set('serviceType', v)} />
@@ -247,7 +312,11 @@ function AddServiceWithInvoiceSheet({ vehicleId, onClose, onSaved }: { vehicleId
                 <IconButton label="حذف قلم" onClick={() => removeItem(i)} size={30}><XIcon size={13} /></IconButton>
               </div>
             ))}
-            <Button type="button" variant="secondary" size="sm" onClick={addItem} icon={<PlusIcon size={13} />}>افزودن قلم</Button>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <Button type="button" variant="secondary" size="sm" onClick={addItem} icon={<PlusIcon size={13} />}>افزودن قلم</Button>
+              <Button type="button" variant="secondary" size="sm" onClick={() => setShowCatalog(true)} icon={<BoxIcon size={13} />}>از کاتالوگ</Button>
+            </div>
+            {showCatalog && <PartsCatalogPicker onPick={pickFromCatalog} onClose={() => setShowCatalog(false)} />}
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
               <FormField label="تخفیف (تومان)">
@@ -274,7 +343,9 @@ function AddServiceWithInvoiceSheet({ vehicleId, onClose, onSaved }: { vehicleId
           </div>
         )}
 
-        <Button type="submit" loading={loading} fullWidth size="lg" icon={<CheckIcon size={16} />}>ثبت سرویس</Button>
+        <Button type="submit" loading={loading} fullWidth size="lg" icon={<CheckIcon size={16} />}>
+          {isEdit ? 'ذخیره تغییرات' : 'ثبت سرویس'}
+        </Button>
       </form>
     </Sheet>
   );

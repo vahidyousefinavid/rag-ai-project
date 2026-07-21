@@ -6,6 +6,7 @@ import { MonitorService } from './monitor.service';
 import { MonitorController } from './monitor.controller';
 import { MonitorScheduler } from './monitor.scheduler';
 import { CrawlerService } from './crawler.service';
+import { DbSinkService } from './db-sink.service';
 import { NotifyService } from './notify/notify.service';
 import { EmailService } from './notify/email.service';
 import { TelegramService } from './notify/telegram.service';
@@ -22,6 +23,7 @@ import { OllamaService } from '../llm/ollama.service';
     MonitorService,
     MonitorScheduler,
     CrawlerService,
+    DbSinkService,
     NotifyService,
     EmailService,
     TelegramService,

@@ -29,6 +29,11 @@ export class SourcesController {
     return this.svc.startIngest(id);
   }
 
+  @Get(':id/profile')
+  getProfile(@Param('id') id: string) {
+    return this.svc.getProfile(id);
+  }
+
   @Post('connection/test')
   testConnection(@Body() body: { sourceType: string; config: Record<string, any> }) {
     return this.svc.testConnection(body.sourceType, body.config);

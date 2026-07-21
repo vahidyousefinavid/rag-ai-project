@@ -1,6 +1,9 @@
 import { useState, useEffect, useRef, type FormEvent } from 'react'
 import { useMonitors } from '../hooks/useMonitors'
-import type { MonitorTarget, MonitorRun, SchedulePreset, NotifyChannel, CrawlLevel } from '../hooks/useMonitors'
+import type {
+  MonitorTarget, MonitorRun, SchedulePreset, NotifyChannel, CrawlLevel,
+  ExtractionField, DbSinkType, DbSinkMode, MonitorFormDto, DbSinkFormInput,
+} from '../hooks/useMonitors'
 import { useLanguage } from '../i18n/LanguageContext'
 
 const ANIM = `
@@ -24,6 +27,11 @@ const Ic = {
   history: <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/><path d="M12 7v5l4 2"/></svg>,
   bell:    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>,
   lock:    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><rect x="4" y="11" width="16" height="9" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>,
+  edit:    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4Z"/></svg>,
+  key:     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="7.5" cy="15.5" r="5.5"/><path d="M21 2l-9.6 9.6M15.5 7.5L18 10M12.5 10.5L15 13"/></svg>,
+  database: <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14a9 3 0 0 0 18 0V5"/><path d="M3 12a9 3 0 0 0 18 0"/></svg>,
+  copy:    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>,
+  plug:    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 9V6a2 2 0 0 0-2-2h-3V1M6 4H3a2 2 0 0 0-2 2v3M4 13h16M9 17v3a2 2 0 0 0 2 2h2a2 2 0 0 0 2-2v-3"/></svg>,
 }
 
 const STATUS_COLOR: Record<string, string> = {
@@ -68,12 +76,15 @@ export default function MonitorPage() {
   const { t } = useLanguage()
   const {
     targets, messages, loading, error, chatSessions, sessionId,
-    fetchTargets, createTarget, deleteTarget, checkNow, fetchRuns,
+    fetchTargets, createTarget, updateTarget, deleteTarget, checkNow, fetchRuns,
+    generateApiKey, revokeApiKey, fetchDataPreview, testDbSink,
     ask, clearChat, selectTarget, newChat, selectChat, deleteChat,
   } = useMonitors()
 
   const [activeTarget, setActiveTarget] = useState<string | undefined>()
-  const [modal,         setModal]        = useState(false)
+  const [modalMode,     setModalMode]   = useState<'create' | 'edit' | null>(null)
+  const [editTargetId,  setEditTargetId]= useState<string | null>(null)
+  const [apiPanelId,    setApiPanelId]  = useState<string | null>(null)
   const [historyId,     setHistoryId]    = useState<string | null>(null)
   const [input,         setInput]        = useState('')
   const [inputFocused,  setInputFocused] = useState(false)
@@ -94,6 +105,8 @@ export default function MonitorPage() {
   const activeTargetObj = targets.find(s => s.id === activeTarget)
   const totalChunks = targets.reduce((a, s) => a + s.docCount, 0)
   const historyTarget = targets.find(s => s.id === historyId)
+  const editTargetObj = targets.find(s => s.id === editTargetId)
+  const apiPanelTarget = targets.find(s => s.id === apiPanelId)
 
   return (
     <>
@@ -120,7 +133,7 @@ export default function MonitorPage() {
                   color: 'var(--text)', fontFamily: '"Fira Code",monospace',
                 }}>SCRAPER</span>
               </div>
-              <AddBtn label={t.monitorNew} onClick={() => setModal(true)} />
+              <AddBtn label={t.monitorNew} onClick={() => setModalMode('create')} />
             </div>
             <AllTargetsBtn
               label={t.monitorAllTargets}
@@ -132,7 +145,7 @@ export default function MonitorPage() {
 
           <div style={{ flex: 1, overflowY: 'auto', padding: 8 }}>
             {targets.length === 0
-              ? <SidebarEmpty label={t.monitorNoTargets} addLabel={t.monitorAddFirst} onAdd={() => setModal(true)} />
+              ? <SidebarEmpty label={t.monitorNoTargets} addLabel={t.monitorAddFirst} onAdd={() => setModalMode('create')} />
               : targets.map(tg => (
                 <TargetCard
                   key={tg.id}
@@ -140,14 +153,20 @@ export default function MonitorPage() {
                   active={activeTarget === tg.id}
                   checkNowLabel={t.monitorCheckNow}
                   deleteLabel={t.monitorDelete}
+                  editLabel={t.monitorEdit}
+                  apiLabel={t.monitorApiPanel}
                   checkingLabel={t.monitorChecking}
                   chunksLabel={t.monitorChunksLabel}
                   historyLabel={t.monitorHistory}
                   never={t.monitorNever}
+                  dbSinkErrorLabel={t.monitorDbSinkErrorLabel}
+                  extractionWarningLabel={t.monitorExtractionWarningLabel}
                   onSelect={() => setActiveTarget(tg.id)}
                   onCheckNow={() => checkNow(tg.id)}
                   onDelete={() => deleteTarget(tg.id)}
                   onHistory={() => setHistoryId(tg.id)}
+                  onEdit={() => { setEditTargetId(tg.id); setModalMode('edit') }}
+                  onApi={() => setApiPanelId(tg.id)}
                 />
               ))
             }
@@ -229,7 +248,7 @@ export default function MonitorPage() {
               <EmptyChat
                 targets={targets}
                 onSelectTarget={setActiveTarget}
-                onAdd={() => setModal(true)}
+                onAdd={() => setModalMode('create')}
                 noDataLabel={t.monitorNoData}
                 readyLabel={t.monitorReadyToQuery}
                 emptyHint={t.monitorEmptyHint}
@@ -295,14 +314,29 @@ export default function MonitorPage() {
           </form>
         </div>
 
-        {modal && (
-          <AddMonitorModal
+        {modalMode && (
+          <MonitorFormModal
             t={t}
-            onClose={() => setModal(false)}
-            onCreate={async (dto) => {
-              await createTarget(dto)
-              setModal(false)
+            initial={modalMode === 'edit' ? editTargetObj : undefined}
+            testDbSink={testDbSink}
+            onClose={() => { setModalMode(null); setEditTargetId(null) }}
+            onSubmit={async (dto) => {
+              if (modalMode === 'edit' && editTargetId) await updateTarget(editTargetId, dto)
+              else await createTarget(dto as MonitorFormDto)
+              setModalMode(null)
+              setEditTargetId(null)
             }}
+          />
+        )}
+
+        {apiPanelTarget && (
+          <ApiDataModal
+            t={t}
+            target={apiPanelTarget}
+            generateApiKey={generateApiKey}
+            revokeApiKey={revokeApiKey}
+            fetchDataPreview={fetchDataPreview}
+            onClose={() => setApiPanelId(null)}
           />
         )}
 
@@ -397,10 +431,17 @@ function SidebarEmpty({ label, addLabel, onAdd }: { label: string; addLabel: str
 }
 
 /* ── Target card ────────────────────────────────────────────────── */
-function TargetCard({ target, active, checkNowLabel, deleteLabel, checkingLabel, chunksLabel, historyLabel, never, onSelect, onCheckNow, onDelete, onHistory }: {
+function TargetCard({
+  target, active, checkNowLabel, deleteLabel, editLabel, apiLabel, checkingLabel, chunksLabel, historyLabel, never,
+  dbSinkErrorLabel, extractionWarningLabel,
+  onSelect, onCheckNow, onDelete, onHistory, onEdit, onApi,
+}: {
   target: MonitorTarget; active: boolean;
-  checkNowLabel: string; deleteLabel: string; checkingLabel: string; chunksLabel: string; historyLabel: string; never: string;
+  checkNowLabel: string; deleteLabel: string; editLabel: string; apiLabel: string;
+  checkingLabel: string; chunksLabel: string; historyLabel: string; never: string;
+  dbSinkErrorLabel: string; extractionWarningLabel: string;
   onSelect: () => void; onCheckNow: () => void; onDelete: () => void; onHistory: () => void;
+  onEdit: () => void; onApi: () => void;
 }) {
   const [hovered, setHovered] = useState(false)
   const showActions = hovered || active
@@ -455,8 +496,18 @@ function TargetCard({ target, active, checkNowLabel, deleteLabel, checkingLabel,
             </div>
           )}
           {target.lastError && (
-            <div style={{ fontSize: 10, color: '#fca5a5', marginTop: 3, lineHeight: 1.4, wordBreak: 'break-word' }}>
-              {target.lastError.slice(0, 80)}
+            <div title={target.lastError} style={{ fontSize: 10, color: '#fca5a5', marginTop: 3, lineHeight: 1.4, wordBreak: 'break-word' }}>
+              {target.lastError.slice(0, 120)}
+            </div>
+          )}
+          {target.lastDbSinkError && (
+            <div title={target.lastDbSinkError} style={{ fontSize: 10, color: '#fb923c', marginTop: 3, lineHeight: 1.4, wordBreak: 'break-word' }}>
+              {dbSinkErrorLabel} {target.lastDbSinkError.slice(0, 100)}
+            </div>
+          )}
+          {target.lastExtractionWarning && (
+            <div title={target.lastExtractionWarning} style={{ fontSize: 10, color: '#fbbf24', marginTop: 3, lineHeight: 1.4, wordBreak: 'break-word' }}>
+              {extractionWarningLabel} {target.lastExtractionWarning.slice(0, 100)}
             </div>
           )}
         </div>
@@ -465,11 +516,11 @@ function TargetCard({ target, active, checkNowLabel, deleteLabel, checkingLabel,
       <div
         onClick={e => e.stopPropagation()}
         style={{
-          display: 'flex', gap: 4,
+          display: 'flex', flexWrap: 'wrap', gap: 4,
           marginTop: showActions ? 8 : 0,
           paddingTop: showActions ? 7 : 0,
           borderTop: showActions ? '1px solid var(--border)' : '1px solid transparent',
-          maxHeight: showActions ? 36 : 0,
+          maxHeight: showActions ? 72 : 0,
           overflow: 'hidden',
           opacity: showActions ? 1 : 0,
           transition: 'max-height .15s,opacity .15s,padding .15s,margin .15s',
@@ -481,22 +532,29 @@ function TargetCard({ target, active, checkNowLabel, deleteLabel, checkingLabel,
         <MiniBtn onClick={onHistory} color="#4f93ce">
           {Ic.history} {historyLabel}
         </MiniBtn>
-        <MiniBtn onClick={onDelete} color="#ef4444">
-          {Ic.trash} {deleteLabel}
+        <MiniBtn onClick={onEdit} color="#a78bfa" title={editLabel}>
+          {Ic.edit}
+        </MiniBtn>
+        <MiniBtn onClick={onApi} color="#22c55e" title={apiLabel}>
+          {Ic.key}
+        </MiniBtn>
+        <MiniBtn onClick={onDelete} color="#ef4444" title={deleteLabel}>
+          {Ic.trash}
         </MiniBtn>
       </div>
     </div>
   )
 }
 
-function MiniBtn({ onClick, disabled, color, children }: {
-  onClick: () => void; disabled?: boolean; color: string; children: React.ReactNode
+function MiniBtn({ onClick, disabled, color, title, children }: {
+  onClick: () => void; disabled?: boolean; color: string; title?: string; children: React.ReactNode
 }) {
   const [h, setH] = useState(false)
   return (
     <button
       onClick={onClick}
       disabled={disabled}
+      title={title}
       onMouseEnter={() => setH(true)}
       onMouseLeave={() => setH(false)}
       style={{
@@ -726,42 +784,89 @@ function EmptyChat({ targets, onSelectTarget, onAdd, noDataLabel, readyLabel, em
   )
 }
 
+const DB_TYPES: DbSinkType[] = ['postgres', 'mysql', 'mongodb']
+const DB_MODES: DbSinkMode[] = ['append', 'replace', 'upsert']
+const DB_DEFAULT_PORT: Record<DbSinkType, number> = { postgres: 5432, mysql: 3306, mongodb: 27017 }
+
 /* ══════════════════════════════════════════════════════════════════
-   ADD MONITOR MODAL
+   ADD / EDIT MONITOR MODAL
 ══════════════════════════════════════════════════════════════════ */
-function AddMonitorModal({ t, onClose, onCreate }: {
+function MonitorFormModal({ t, initial, testDbSink, onClose, onSubmit }: {
   t: import('../i18n').Translation
+  initial?: MonitorTarget
+  testDbSink: (cfg: DbSinkFormInput) => Promise<{ ok: boolean; error?: string }>
   onClose: () => void
-  onCreate: (dto: {
-    name: string; url: string; maxPages: number; crawlLevel: CrawlLevel
-    schedulePreset: SchedulePreset; scheduleCron?: string
-    whatToCheck?: string; notifyChannels: NotifyChannel[]
-    notifyConfig: { email?: string; telegramChatId?: string; webhookUrl?: string; smsPhone?: string }
-    loginUrl?: string; loginUsername?: string; loginPassword?: string
-    loginUsernameSelector?: string; loginPasswordSelector?: string; loginSubmitSelector?: string
-  }) => Promise<void>
+  onSubmit: (dto: Partial<MonitorFormDto>) => Promise<void>
 }) {
-  const [name,          setName]          = useState('')
-  const [url,            setUrl]          = useState('')
-  const [maxPages,       setMaxPages]     = useState('20')
-  const [crawlLevel,     setCrawlLevel]   = useState<CrawlLevel>(2)
-  const [schedulePreset, setPreset]       = useState<SchedulePreset>('daily')
-  const [scheduleCron,   setCron]         = useState('0 */6 * * *')
-  const [whatToCheck,    setWhatToCheck]  = useState('')
-  const [channels,       setChannels]     = useState<Set<NotifyChannel>>(new Set())
-  const [email,          setEmail]        = useState('')
-  const [telegramChatId, setTelegramId]   = useState('')
-  const [webhookUrl,     setWebhookUrl]   = useState('')
-  const [smsPhone,       setSmsPhone]     = useState('')
-  const [requiresLogin,  setRequiresLogin]= useState(false)
-  const [loginUrl,       setLoginUrl]     = useState('')
-  const [loginUsername,  setLoginUsername]= useState('')
+  const isEdit = !!initial
+  const [name,          setName]          = useState(initial?.name ?? '')
+  const [url,            setUrl]          = useState(initial?.url ?? '')
+  const [maxPages,       setMaxPages]     = useState(String(initial?.maxPages ?? 20))
+  const [crawlLevel,     setCrawlLevel]   = useState<CrawlLevel>(initial?.crawlLevel ?? 2)
+  const [schedulePreset, setPreset]       = useState<SchedulePreset>(initial?.schedulePreset ?? 'daily')
+  const [scheduleCron,   setCron]         = useState(initial?.scheduleCron ?? '0 */6 * * *')
+  const [whatToCheck,    setWhatToCheck]  = useState(initial?.whatToCheck ?? '')
+  const [channels,       setChannels]     = useState<Set<NotifyChannel>>(new Set(initial?.notifyChannels ?? []))
+  const [email,          setEmail]        = useState(initial?.notifyConfig.email ?? '')
+  const [telegramChatId, setTelegramId]   = useState(initial?.notifyConfig.telegramChatId ?? '')
+  const [webhookUrl,     setWebhookUrl]   = useState(initial?.notifyConfig.webhookUrl ?? '')
+  const [smsPhone,       setSmsPhone]     = useState(initial?.notifyConfig.smsPhone ?? '')
+  const [requiresLogin,  setRequiresLogin]= useState(!!initial?.loginUrl)
+  const [loginUrl,       setLoginUrl]     = useState(initial?.loginUrl ?? '')
+  const [loginUsername,  setLoginUsername]= useState(initial?.loginUsername ?? '')
   const [loginPassword,  setLoginPassword]= useState('')
   const [showAdvLogin,   setShowAdvLogin] = useState(false)
-  const [userSelector,   setUserSelector] = useState('')
-  const [passSelector,   setPassSelector] = useState('')
-  const [submitSelector, setSubmitSelector]= useState('')
+  const [userSelector,   setUserSelector] = useState(initial?.loginUsernameSelector ?? '')
+  const [passSelector,   setPassSelector] = useState(initial?.loginPasswordSelector ?? '')
+  const [submitSelector, setSubmitSelector]= useState(initial?.loginSubmitSelector ?? '')
   const [saving,         setSaving]       = useState(false)
+
+  // ── Structured extraction ──────────────────────────────────────
+  const [extractionEnabled, setExtractionEnabled] = useState(!!initial?.extractionSchema)
+  const [itemSelector,      setItemSelector]      = useState(initial?.extractionSchema?.itemSelector ?? '')
+  const [fields,            setFields]            = useState<ExtractionField[]>(
+    initial?.extractionSchema?.fields?.length ? initial.extractionSchema.fields : [{ name: '', selector: '', attr: '' }],
+  )
+  function updateField(i: number, patch: Partial<ExtractionField>) {
+    setFields(prev => prev.map((f, idx) => idx === i ? { ...f, ...patch } : f))
+  }
+  function addField() { setFields(prev => [...prev, { name: '', selector: '', attr: '' }]) }
+  function removeField(i: number) { setFields(prev => prev.filter((_, idx) => idx !== i)) }
+
+  // ── DB sink ─────────────────────────────────────────────────────
+  const [dbSinkEnabled, setDbSinkEnabled] = useState(!!initial?.dbSink?.enabled)
+  const [dbType,        setDbType]        = useState<DbSinkType>(initial?.dbSink?.type ?? 'postgres')
+  const [dbHost,        setDbHost]        = useState(initial?.dbSink?.host ?? '')
+  const [dbPort,        setDbPort]        = useState(String(initial?.dbSink?.port ?? DB_DEFAULT_PORT.postgres))
+  const [dbUser,        setDbUser]        = useState(initial?.dbSink?.user ?? '')
+  const [dbPassword,    setDbPassword]    = useState('')
+  const [dbDatabase,    setDbDatabase]    = useState(initial?.dbSink?.database ?? '')
+  const [dbTable,       setDbTable]       = useState(initial?.dbSink?.table ?? '')
+  const [dbMode,        setDbMode]        = useState<DbSinkMode>(initial?.dbSink?.mode ?? 'append')
+  const [dbUpsertKey,   setDbUpsertKey]   = useState(initial?.dbSink?.upsertKey ?? '')
+  const [dbTesting,     setDbTesting]     = useState(false)
+  const [dbTestResult,  setDbTestResult]  = useState<{ ok: boolean; error?: string } | null>(null)
+
+  function selectDbType(next: DbSinkType) {
+    setDbType(next)
+    setDbTestResult(null)
+    // only auto-fill the port if it still matches a known default — don't clobber a custom one
+    if (Object.values(DB_DEFAULT_PORT).includes(Number(dbPort))) setDbPort(String(DB_DEFAULT_PORT[next]))
+  }
+
+  async function handleTestDbSink() {
+    setDbTesting(true)
+    setDbTestResult(null)
+    try {
+      const result = await testDbSink({
+        enabled: true, type: dbType, host: dbHost, port: Number(dbPort) || DB_DEFAULT_PORT[dbType],
+        user: dbUser, password: dbPassword || undefined, database: dbDatabase, table: dbTable.trim(), mode: dbMode,
+      })
+      setDbTestResult(result)
+    } finally {
+      setDbTesting(false)
+    }
+  }
 
   function toggleChannel(c: NotifyChannel) {
     setChannels(prev => {
@@ -790,7 +895,11 @@ function AddMonitorModal({ t, onClose, onCreate }: {
     if (!name.trim() || !url.trim()) return
     setSaving(true)
     try {
-      await onCreate({
+      const cleanFields = fields
+        .map(f => ({ name: f.name.trim(), selector: f.selector.trim(), attr: f.attr?.trim() || undefined }))
+        .filter(f => f.name && f.selector)
+
+      await onSubmit({
         name: name.trim(),
         url: url.trim(),
         maxPages: Number(maxPages) || 20,
@@ -806,6 +915,16 @@ function AddMonitorModal({ t, onClose, onCreate }: {
         loginUsernameSelector: requiresLogin ? userSelector || undefined : undefined,
         loginPasswordSelector: requiresLogin ? passSelector || undefined : undefined,
         loginSubmitSelector: requiresLogin ? submitSelector || undefined : undefined,
+        extractionSchema: extractionEnabled && cleanFields.length > 0
+          ? { itemSelector: itemSelector.trim() || undefined, fields: cleanFields }
+          : null,
+        dbSink: dbSinkEnabled && dbTable.trim()
+          ? {
+              enabled: true, type: dbType, host: dbHost, port: Number(dbPort) || DB_DEFAULT_PORT[dbType],
+              user: dbUser, password: dbPassword || undefined, database: dbDatabase, table: dbTable.trim(),
+              mode: dbMode, upsertKey: dbUpsertKey.trim() || undefined,
+            }
+          : (isEdit ? null : undefined),
       })
     } catch (err: any) {
       alert(err.message)
@@ -850,8 +969,8 @@ function AddMonitorModal({ t, onClose, onCreate }: {
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ color: 'var(--accent)' }}>{Ic.plus}</span>
-            <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text)' }}>{t.monitorAddModalTitle}</span>
+            <span style={{ color: 'var(--accent)' }}>{isEdit ? Ic.edit : Ic.plus}</span>
+            <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text)' }}>{isEdit ? t.monitorEditModalTitle : t.monitorAddModalTitle}</span>
           </div>
           <button
             onClick={onClose}
@@ -954,7 +1073,11 @@ function AddMonitorModal({ t, onClose, onCreate }: {
                   </div>
                   <div>
                     <label style={lbl}>{t.monitorLoginPassword}</label>
-                    <input style={inp} type="password" value={loginPassword} onChange={e => setLoginPassword(e.target.value)} placeholder={t.monitorLoginPasswordPlaceholder} required={requiresLogin} />
+                    <input
+                      style={inp} type="password" value={loginPassword} onChange={e => setLoginPassword(e.target.value)}
+                      placeholder={isEdit && initial?.hasLoginPassword ? t.monitorDbPasswordPlaceholder : t.monitorLoginPasswordPlaceholder}
+                      required={requiresLogin && !(isEdit && initial?.hasLoginPassword)}
+                    />
                   </div>
                 </div>
                 <button
@@ -979,6 +1102,159 @@ function AddMonitorModal({ t, onClose, onCreate }: {
                     </div>
                   </div>
                 )}
+              </div>
+            )}
+          </div>
+
+          <div>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--text)', cursor: 'pointer', fontWeight: 500 }}>
+              <input type="checkbox" checked={extractionEnabled} onChange={e => setExtractionEnabled(e.target.checked)} />
+              {t.monitorExtraction}
+            </label>
+            <div style={{ fontSize: 10.5, color: 'var(--text-muted)', marginTop: 4, lineHeight: 1.5 }}>{t.monitorExtractionHint}</div>
+
+            {extractionEnabled && (
+              <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 10, padding: 12, borderRadius: 10, border: '1px solid var(--border)', background: 'rgba(255,255,255,.02)' }}>
+                <div>
+                  <label style={lbl}>{t.monitorItemSelector}</label>
+                  <input style={{ ...inp, fontFamily: '"Fira Code",monospace' }} value={itemSelector} onChange={e => setItemSelector(e.target.value)} placeholder={t.monitorItemSelectorPlaceholder} />
+                </div>
+                <div>
+                  <label style={lbl}>{t.monitorExtractionFields}</label>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    {fields.map((f, i) => (
+                      <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 1.4fr 1fr auto', gap: 6, alignItems: 'center' }}>
+                        <input style={inp} value={f.name} onChange={e => updateField(i, { name: e.target.value })} placeholder={t.monitorFieldNamePlaceholder} />
+                        <input style={{ ...inp, fontFamily: '"Fira Code",monospace' }} value={f.selector} onChange={e => updateField(i, { selector: e.target.value })} placeholder={t.monitorFieldSelectorPlaceholder} />
+                        <input style={inp} value={f.attr ?? ''} onChange={e => updateField(i, { attr: e.target.value })} placeholder={t.monitorFieldAttrPlaceholder} />
+                        <button
+                          type="button" onClick={() => removeField(i)} disabled={fields.length === 1}
+                          title={t.monitorRemoveField}
+                          style={{
+                            background: 'rgba(239,68,68,.08)', border: '1px solid rgba(239,68,68,.25)', borderRadius: 6,
+                            width: 26, height: 26, color: '#ef4444', cursor: fields.length === 1 ? 'not-allowed' : 'pointer',
+                            opacity: fields.length === 1 ? 0.35 : 1, flexShrink: 0,
+                          }}
+                        >✕</button>
+                      </div>
+                    ))}
+                  </div>
+                  <button
+                    type="button" onClick={addField}
+                    style={{ marginTop: 8, background: 'none', border: 'none', color: 'var(--accent)', fontSize: 11, fontWeight: 600, cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center', gap: 4 }}
+                  >
+                    {Ic.plus} {t.monitorAddField}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--text)', cursor: 'pointer', fontWeight: 500 }}>
+              <input type="checkbox" checked={dbSinkEnabled} onChange={e => setDbSinkEnabled(e.target.checked)} />
+              {t.monitorDbSink}
+            </label>
+            <div style={{ fontSize: 10.5, color: 'var(--text-muted)', marginTop: 4, lineHeight: 1.5 }}>{t.monitorDbSinkHint}</div>
+
+            {dbSinkEnabled && (
+              <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 10, padding: 12, borderRadius: 10, border: '1px solid var(--border)', background: 'rgba(255,255,255,.02)' }}>
+                <div>
+                  <label style={lbl}>{t.monitorDbType}</label>
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    {DB_TYPES.map(dt => (
+                      <button
+                        key={dt} type="button" onClick={() => selectDbType(dt)}
+                        style={{
+                          padding: '7px 11px', borderRadius: 8, fontSize: 11, fontWeight: 600,
+                          border: `1.5px solid ${dbType === dt ? '#7c3aed' : 'var(--border)'}`,
+                          background: dbType === dt ? 'rgba(124,58,237,.14)' : 'rgba(255,255,255,.03)',
+                          color: dbType === dt ? '#a78bfa' : 'var(--text-muted)',
+                          cursor: 'pointer', transition: 'all .15s',
+                        }}
+                      >
+                        {dt}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 10 }}>
+                  <div>
+                    <label style={lbl}>{t.monitorDbHost}</label>
+                    <input style={inp} value={dbHost} onChange={e => setDbHost(e.target.value)} placeholder="localhost" />
+                  </div>
+                  <div>
+                    <label style={lbl}>{t.monitorDbPort}</label>
+                    <input style={inp} type="number" value={dbPort} onChange={e => setDbPort(e.target.value)} />
+                  </div>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                  <div>
+                    <label style={lbl}>{t.monitorDbUser}</label>
+                    <input style={inp} value={dbUser} onChange={e => setDbUser(e.target.value)} />
+                  </div>
+                  <div>
+                    <label style={lbl}>{t.monitorDbPassword}</label>
+                    <input
+                      style={inp} type="password" value={dbPassword} onChange={e => setDbPassword(e.target.value)}
+                      placeholder={isEdit && initial?.dbSink?.hasPassword ? t.monitorDbPasswordPlaceholder : ''}
+                    />
+                  </div>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                  <div>
+                    <label style={lbl}>{t.monitorDbDatabase}</label>
+                    <input style={inp} value={dbDatabase} onChange={e => setDbDatabase(e.target.value)} />
+                  </div>
+                  <div>
+                    <label style={lbl}>{dbType === 'mongodb' ? t.monitorDbCollection : t.monitorDbTable}</label>
+                    <input style={inp} value={dbTable} onChange={e => setDbTable(e.target.value)} />
+                  </div>
+                </div>
+                <div>
+                  <label style={lbl}>{t.monitorDbMode}</label>
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    {DB_MODES.map(m => (
+                      <button
+                        key={m} type="button" onClick={() => setDbMode(m)}
+                        style={{
+                          flex: 1, minWidth: 130, padding: '7px 11px', borderRadius: 8, fontSize: 10.5, fontWeight: 600,
+                          border: `1.5px solid ${dbMode === m ? '#7c3aed' : 'var(--border)'}`,
+                          background: dbMode === m ? 'rgba(124,58,237,.14)' : 'rgba(255,255,255,.03)',
+                          color: dbMode === m ? '#a78bfa' : 'var(--text-muted)',
+                          cursor: 'pointer', transition: 'all .15s',
+                        }}
+                      >
+                        {m === 'append' ? t.dbModeAppend : m === 'replace' ? t.dbModeReplace : t.dbModeUpsert}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                {dbMode === 'upsert' && (
+                  <div>
+                    <label style={lbl}>{t.monitorDbUpsertKey}</label>
+                    <input style={inp} value={dbUpsertKey} onChange={e => setDbUpsertKey(e.target.value)} placeholder={t.monitorDbUpsertKeyPlaceholder} />
+                  </div>
+                )}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <button
+                    type="button" onClick={handleTestDbSink} disabled={dbTesting || !dbHost || !dbTable.trim()}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 6,
+                      background: 'rgba(255,255,255,.04)', border: '1px solid var(--border)', borderRadius: 8,
+                      padding: '7px 12px', fontSize: 11, fontWeight: 600, color: 'var(--text)',
+                      cursor: dbTesting || !dbHost || !dbTable.trim() ? 'not-allowed' : 'pointer',
+                      opacity: dbTesting || !dbHost || !dbTable.trim() ? 0.5 : 1,
+                    }}
+                  >
+                    {Ic.plug} {dbTesting ? t.monitorDbTesting : t.monitorDbTestConn}
+                  </button>
+                  {dbTestResult && (
+                    <span style={{ fontSize: 11, color: dbTestResult.ok ? '#4ade80' : '#f87171' }}>
+                      {dbTestResult.ok ? t.monitorDbTestOk : `${t.monitorDbTestFail}: ${dbTestResult.error ?? ''}`}
+                    </span>
+                  )}
+                </div>
               </div>
             )}
           </div>
@@ -1038,9 +1314,188 @@ function AddMonitorModal({ t, onClose, onCreate }: {
               cursor: saving || !name.trim() || !url.trim() ? 'not-allowed' : 'pointer',
             }}
           >
-            {saving ? t.monitorSaving : t.monitorSave}
+            {saving ? t.monitorSaving : isEdit ? t.monitorSaveChanges : t.monitorSave}
           </button>
         </form>
+      </div>
+    </div>
+  )
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   API & DATA MODAL
+══════════════════════════════════════════════════════════════════ */
+function ApiDataModal({ t, target, generateApiKey, revokeApiKey, fetchDataPreview, onClose }: {
+  t: import('../i18n').Translation
+  target: MonitorTarget
+  generateApiKey: (id: string) => Promise<string>
+  revokeApiKey: (id: string) => Promise<void>
+  fetchDataPreview: (id: string) => Promise<Record<string, any>[]>
+  onClose: () => void
+}) {
+  const [newKey,   setNewKey]   = useState<string | null>(null)
+  const [copied,   setCopied]   = useState(false)
+  const [busy,     setBusy]     = useState(false)
+  const [preview,  setPreview]  = useState<Record<string, any>[] | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    fetchDataPreview(target.id).then(r => { if (!cancelled) setPreview(r) })
+    return () => { cancelled = true }
+  }, [target.id, fetchDataPreview])
+
+  async function handleGenerate() {
+    setBusy(true)
+    try {
+      const key = await generateApiKey(target.id)
+      setNewKey(key)
+      setCopied(false)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function handleRevoke() {
+    setBusy(true)
+    try {
+      await revokeApiKey(target.id)
+      setNewKey(null)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  function copyKey() {
+    if (!newKey) return
+    navigator.clipboard?.writeText(newKey).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    })
+  }
+
+  const origin = typeof window !== 'undefined' ? window.location.origin : ''
+  const curlCmd = `curl "${origin}/monitors/${target.id}/data" -H "X-Api-Key: YOUR_API_KEY"`
+
+  const btnStyle: React.CSSProperties = {
+    display: 'flex', alignItems: 'center', gap: 6,
+    border: '1px solid var(--border)', borderRadius: 8,
+    padding: '7px 12px', fontSize: 11, fontWeight: 600,
+    cursor: busy ? 'not-allowed' : 'pointer', opacity: busy ? 0.5 : 1,
+  }
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: 'fixed', inset: 0, background: 'rgba(0,0,0,.78)',
+        zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center',
+        backdropFilter: 'blur(4px)',
+      }}
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{
+          background: 'var(--surface)', border: '1px solid var(--border)',
+          borderRadius: 18, width: 560, maxHeight: '85vh',
+          display: 'flex', flexDirection: 'column', overflow: 'hidden',
+          boxShadow: '0 32px 80px rgba(0,0,0,.72),0 0 0 1px rgba(124,58,237,.1)',
+        }}
+      >
+        <div style={{
+          padding: '16px 20px', borderBottom: '1px solid var(--border)',
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+            <span style={{ color: 'var(--accent)' }}>{Ic.key}</span>
+            <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {t.monitorApiPanel} — {target.name}
+            </span>
+          </div>
+          <button
+            onClick={onClose}
+            style={{
+              background: 'rgba(255,255,255,.06)', border: '1px solid var(--border)',
+              borderRadius: 8, width: 28, height: 28, flexShrink: 0,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              color: 'var(--text-muted)', cursor: 'pointer', fontSize: 14,
+            }}
+          >✕</button>
+        </div>
+
+        <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <div>
+            {newKey ? (
+              <div style={{ padding: 12, borderRadius: 10, border: '1px solid rgba(34,197,94,.3)', background: 'rgba(34,197,94,.06)' }}>
+                <div style={{ fontSize: 11, color: '#4ade80', marginBottom: 6 }}>{t.monitorApiKeyShown}</div>
+                <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                  <code style={{
+                    flex: 1, fontSize: 11, fontFamily: '"Fira Code",monospace', background: 'rgba(0,0,0,.25)',
+                    borderRadius: 6, padding: '6px 10px', overflowX: 'auto', whiteSpace: 'nowrap', color: 'var(--text)',
+                  }}>{newKey}</code>
+                  <button type="button" onClick={copyKey} style={{ ...btnStyle, background: 'rgba(255,255,255,.05)' }}>
+                    {Ic.copy} {copied ? t.monitorApiKeyCopied : t.monitorApiKeyCopy}
+                  </button>
+                </div>
+              </div>
+            ) : target.hasApiKey ? (
+              <div style={{ fontSize: 12, color: 'var(--text)' }}>{t.monitorApiKeyActive(target.apiKeyPrefix ?? '')}</div>
+            ) : (
+              <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{t.monitorApiKeyNone}</div>
+            )}
+
+            <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+              <button type="button" onClick={handleGenerate} disabled={busy} style={{ ...btnStyle, background: 'rgba(124,58,237,.12)', borderColor: 'rgba(124,58,237,.35)', color: '#a78bfa' }}>
+                {Ic.key} {t.monitorApiKeyGenerate}
+              </button>
+              {target.hasApiKey && (
+                <button type="button" onClick={handleRevoke} disabled={busy} style={{ ...btnStyle, background: 'rgba(239,68,68,.08)', borderColor: 'rgba(239,68,68,.25)', color: '#f87171' }}>
+                  {Ic.trash} {t.monitorApiKeyRevoke}
+                </button>
+              )}
+            </div>
+          </div>
+
+          <div>
+            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 6 }}>{t.monitorApiEndpointHint}</div>
+            <code style={{
+              display: 'block', fontSize: 10.5, fontFamily: '"Fira Code",monospace', background: 'rgba(0,0,0,.25)',
+              borderRadius: 8, padding: '10px 12px', overflowX: 'auto', whiteSpace: 'pre', color: 'var(--text-muted)',
+            }}>{curlCmd}</code>
+          </div>
+
+          {target.lastDbSinkError && (
+            <div style={{ fontSize: 11, color: '#fb923c', lineHeight: 1.6, padding: 10, borderRadius: 8, background: 'rgba(251,146,60,.08)', border: '1px solid rgba(251,146,60,.25)' }}>
+              {t.monitorDbSinkErrorLabel} {target.lastDbSinkError}
+            </div>
+          )}
+          {target.lastExtractionWarning && (
+            <div style={{ fontSize: 11, color: '#fbbf24', lineHeight: 1.6, padding: 10, borderRadius: 8, background: 'rgba(251,191,36,.08)', border: '1px solid rgba(251,191,36,.25)' }}>
+              {t.monitorExtractionWarningLabel} {target.lastExtractionWarning}
+            </div>
+          )}
+
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+              <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{t.monitorApiPreview}</span>
+              {preview && preview.length > 0 && (
+                <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>{t.monitorApiRecordCount(preview.length)}</span>
+              )}
+            </div>
+            {preview === null ? (
+              <div style={{ fontSize: 11, color: 'var(--text-muted)', padding: 10 }}>{t.loading}</div>
+            ) : preview.length === 0 ? (
+              <div style={{ fontSize: 11, color: 'var(--text-muted)', padding: 10 }}>{t.monitorApiPreviewEmpty}</div>
+            ) : (
+              <pre style={{
+                margin: 0, fontSize: 10.5, fontFamily: '"Fira Code",monospace', background: 'rgba(0,0,0,.25)',
+                borderRadius: 8, padding: '10px 12px', maxHeight: 260, overflow: 'auto', color: 'var(--text)',
+                whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+              }}>
+                {JSON.stringify(preview.slice(0, 20), null, 2)}
+              </pre>
+            )}
+          </div>
+        </div>
       </div>
     </div>
   )
@@ -1132,6 +1587,11 @@ function HistoryModal({ t, target, fetchRuns, onClose }: {
                   )}
                   {run.error && (
                     <div style={{ fontSize: 12, color: '#fca5a5', lineHeight: 1.6 }}>{run.error}</div>
+                  )}
+                  {run.dbSinkError && (
+                    <div style={{ fontSize: 12, color: '#fb923c', lineHeight: 1.6, marginTop: run.error ? 4 : 0 }}>
+                      {t.monitorDbSinkErrorLabel} {run.dbSinkError}
+                    </div>
                   )}
                 </div>
               ))}

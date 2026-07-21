@@ -70,6 +70,7 @@ export class VehicleAccessService {
     });
     return rows.map((r) => ({
       id: r.id,
+      mechanicId: r.mechanicId,
       workshopName: r.mechanic?.workshopName,
       workshopAddress: r.mechanic?.workshopAddress,
       mechanicPhone: r.mechanic?.phone,
@@ -122,6 +123,16 @@ export class VehicleAccessService {
     return { vehicleId: invite.vehicleId, make: vehicle?.make, model: vehicle?.model };
   }
 
+  async grantDirect(vehicleId: string, mechanicId: string) {
+    try {
+      const grant = this.access.create({ vehicleId, mechanicId });
+      await this.access.save(grant);
+    } catch (e: any) {
+      if (e.code !== POSTGRES_UNIQUE_VIOLATION) throw e;
+      // already has active access to this vehicle
+    }
+  }
+
   async listMechanicVehicles(mechanicId: string) {
     const rows = await this.access.find({
       where: { mechanicId, revoked: false },
@@ -136,8 +147,10 @@ export class VehicleAccessService {
       year: r.vehicle.year,
       plateNumber: r.vehicle.plateNumber,
       currentMileage: r.vehicle.currentMileage,
-      ownerName: r.vehicle.user?.name,
+      ownerName: r.vehicle.user?.name || r.vehicle.customerName,
       grantedAt: r.grantedAt,
+      linkStatus: r.vehicle.linkStatus,
+      customerName: r.vehicle.customerName,
     }));
   }
 

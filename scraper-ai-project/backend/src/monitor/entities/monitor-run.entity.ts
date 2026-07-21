@@ -22,8 +22,14 @@ export class MonitorRun {
   @Column({ default: 0 })
   pagesChecked: number;
 
+  @Column({ default: 0 })
+  extractedCount: number;
+
   @Column({ type: 'text', nullable: true })
   error: string | null;
+
+  @Column({ type: 'text', nullable: true })
+  dbSinkError: string | null;
 
   @CreateDateColumn()
   ranAt: Date;

@@ -50,9 +50,9 @@ export default function ProfilePage() {
           </div>
           <div>
             <p style={{ color: C.text, fontSize: 18, fontWeight: 900, margin: 0 }}>
-              {user?.role === 'mechanic' ? (user?.workshopName || 'تعمیرگاه') : (user?.name || 'کاربر مهمان')}
+              {(user?.role === 'mechanic' || user?.role === 'seller') ? (user?.workshopName || 'کاربر') : (user?.name || 'کاربر مهمان')}
             </p>
-            {user?.role === 'mechanic' && (
+            {(user?.role === 'mechanic' || user?.role === 'seller') && (
               <p style={{ color: C.subtle, fontSize: 12, fontWeight: 500, margin: '3px 0 0' }}>{user?.name}</p>
             )}
             <p style={{ color: C.muted, fontSize: 13, fontWeight: 500, margin: '4px 0 0', direction: 'ltr' }}>
@@ -70,6 +70,20 @@ export default function ProfilePage() {
               <MenuRow icon={<CalendarIcon size={18} />} label="نوبت‌ها" onClick={() => router.push('/appointments')} />
               <MenuRow icon={<BoxIcon size={18} />} label="کاتالوگ قطعات" onClick={() => router.push('/mechanic/parts')} />
               <MenuRow icon={<UsersIcon size={18} />} label="سازمان‌ها / ناوگان" onClick={() => router.push('/organizations')} />
+            </Card>
+
+            <div style={{ marginBottom: 12 }}>
+              <WorkshopLocationCard user={user} onSaved={setUser} />
+            </div>
+
+            <div style={{ marginBottom: 20 }}>
+              <PushToggle />
+            </div>
+          </>
+        ) : user?.role === 'seller' ? (
+          <>
+            <Card style={{ marginBottom: 12 }} padding="4px">
+              <MenuRow icon={<BoxIcon size={18} />} label="محصولات من" onClick={() => router.push('/seller/products')} />
             </Card>
 
             <div style={{ marginBottom: 12 }}>
@@ -159,7 +173,7 @@ function WorkshopLocationCard({ user, onSaved }: { user: User; onSaved: (u: User
   return (
     <Card>
       <p style={{ fontSize: 12.5, fontWeight: 800, color: C.text, margin: '0 0 10px', display: 'flex', alignItems: 'center', gap: 6 }}>
-        <StoreIcon size={15} /> موقعیت تعمیرگاه روی نقشه
+        <StoreIcon size={15} /> موقعیت {user.role === 'seller' ? 'فروشگاه' : 'تعمیرگاه'} روی نقشه
       </p>
       <div style={{ marginBottom: 10 }}>
         <NeshanMap lat={coords?.lat} lng={coords?.lng} height={140} onOpenPicker={() => setShowPicker(true)} />

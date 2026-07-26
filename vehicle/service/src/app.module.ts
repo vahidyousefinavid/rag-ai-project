@@ -25,7 +25,9 @@ import { PaymentsModule } from './payments/payments.module';
 import { MechanicServicesModule } from './mechanic-services/mechanic-services.module';
 import { GeocodeModule } from './geocode/geocode.module';
 import { MapModule } from './map/map.module';
+import { ProductsModule } from './products/products.module';
 import { User } from './users/user.entity';
+import { OtpCode } from './auth/otp-code.entity';
 import { Vehicle } from './vehicles/vehicle.entity';
 import { ServiceRecord } from './service-records/service-record.entity';
 import { FuelLog } from './fuel-logs/fuel-log.entity';
@@ -45,6 +47,7 @@ import { Organization } from './organizations/organization.entity';
 import { OrganizationMember } from './organizations/organization-member.entity';
 import { Payment } from './payments/payment.entity';
 import { MechanicService } from './mechanic-services/mechanic-service.entity';
+import { Product } from './products/product.entity';
 
 @Module({
   imports: [
@@ -58,10 +61,10 @@ import { MechanicService } from './mechanic-services/mechanic-service.entity';
       password: process.env.POSTGRES_PASSWORD || 'rag_password',
       database: process.env.POSTGRES_DB       || 'vehicle_db',
       entities: [
-        User, Vehicle, ServiceRecord, FuelLog, VehicleDocument, Reminder,
+        User, OtpCode, Vehicle, ServiceRecord, FuelLog, VehicleDocument, Reminder,
         VehicleInvite, VehicleAccess, Invoice, InvoiceItem, Notification,
         Review, Appointment, Message, PushSubscription, Part,
-        Organization, OrganizationMember, Payment, MechanicService,
+        Organization, OrganizationMember, Payment, MechanicService, Product,
       ],
       synchronize: true,
     }),
@@ -88,6 +91,7 @@ import { MechanicService } from './mechanic-services/mechanic-service.entity';
     MechanicServicesModule,
     GeocodeModule,
     MapModule,
+    ProductsModule,
   ],
 })
 export class AppModule {}

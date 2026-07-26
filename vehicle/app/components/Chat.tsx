@@ -27,6 +27,7 @@ export default function Chat({
   const [loading, setLoading] = useState(true);
   const [body, setBody] = useState('');
   const [sending, setSending] = useState(false);
+  const [inputFocused, setInputFocused] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const meId = typeof window !== 'undefined' ? JSON.parse(localStorage.getItem('vuser') || '{}').id : null;
@@ -120,10 +121,16 @@ export default function Chat({
             ref={inputRef}
             value={body}
             onChange={e => setBody(e.target.value)}
+            onFocus={() => setInputFocused(true)}
+            onBlur={() => setInputFocused(false)}
             placeholder="پیام بنویس..."
             style={{
-              flex: 1, background: 'rgba(255,255,255,0.05)', border: `1px solid ${C.border}`, borderRadius: 14,
+              flex: 1, background: 'rgba(255,255,255,0.05)',
+              border: `1px solid ${inputFocused ? C.green : C.border}`,
+              boxShadow: inputFocused ? `0 0 0 3px ${C.green}1a` : 'none',
+              borderRadius: 14,
               padding: '11px 14px', fontSize: 13, color: C.text, fontFamily: 'Vazirmatn, sans-serif', outline: 'none',
+              transition: 'border-color 0.15s, box-shadow 0.15s',
             }}
           />
           <Button type="submit" loading={sending} disabled={!body.trim()} icon={<SendIcon size={15} />}>ارسال</Button>

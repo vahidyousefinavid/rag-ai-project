@@ -362,3 +362,11 @@ export const NavigationIcon = (p: IconProps) => (
     <path d="M3 11 20 3l-8 17-2-7-7-2Z" />
   </Svg>
 );
+
+export const ImageIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <rect x="3" y="3" width="18" height="18" rx="2" />
+    <circle cx="8.5" cy="8.5" r="1.5" />
+    <path d="m21 15-5-5L5 21" />
+  </Svg>
+);

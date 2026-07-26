@@ -1,6 +1,7 @@
 import { Controller, Post, Patch, Body, UseGuards, Request } from '@nestjs/common';
-import { IsString, IsMobilePhone, IsOptional, IsIn, IsNumber, ValidateIf } from 'class-validator';
+import { IsString, IsMobilePhone, IsOptional, IsIn, IsNumber, Length, ValidateIf } from 'class-validator';
 import { Type } from 'class-transformer';
+import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { JwtAuthGuard } from './jwt-auth.guard';
 
@@ -9,13 +10,17 @@ export class RegisterDto {
   phone: string;
 
   @IsString()
+  @Length(4, 4)
+  code: string;
+
+  @IsString()
   name: string;
 
   @IsOptional()
-  @IsIn(['owner', 'mechanic'])
-  role?: 'owner' | 'mechanic';
+  @IsIn(['owner', 'mechanic', 'seller'])
+  role?: 'owner' | 'mechanic' | 'seller';
 
-  @ValidateIf((o) => o.role === 'mechanic')
+  @ValidateIf((o) => o.role === 'mechanic' || o.role === 'seller')
   @IsString()
   workshopName?: string;
 
@@ -24,9 +29,18 @@ export class RegisterDto {
   workshopAddress?: string;
 }
 
-class LoginDto {
-  @IsString()
+class RequestOtpDto {
+  @IsMobilePhone('fa-IR')
   phone: string;
+}
+
+class LoginDto {
+  @IsMobilePhone('fa-IR')
+  phone: string;
+
+  @IsString()
+  @Length(4, 4)
+  code: string;
 }
 
 class UpdateProfileDto {
@@ -36,18 +50,27 @@ class UpdateProfileDto {
   @IsOptional() @IsNumber() @Type(() => Number) workshopLng?: number;
 }
 
+@UseGuards(ThrottlerGuard)
 @Controller('auth')
 export class AuthController {
   constructor(private auth: AuthService) {}
 
+  @Throttle({ default: { limit: 3, ttl: 60_000 } })
+  @Post('otp/request')
+  requestOtp(@Body() dto: RequestOtpDto) {
+    return this.auth.requestOtp(dto.phone);
+  }
+
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @Post('register')
   register(@Body() dto: RegisterDto) {
     return this.auth.register(dto);
   }
 
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @Post('login')
   login(@Body() dto: LoginDto) {
-    return this.auth.login(dto.phone);
+    return this.auth.login(dto.phone, dto.code);
   }
 
   @UseGuards(JwtAuthGuard)

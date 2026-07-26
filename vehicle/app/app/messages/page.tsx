@@ -4,13 +4,13 @@ import { useRouter } from 'next/navigation';
 import Navbar from '@/components/Navbar';
 import BottomNav from '@/components/BottomNav';
 import Chat from '@/components/Chat';
-import { api, Conversation, Role, toJalali } from '@/lib/api';
+import { api, Conversation, toJalali } from '@/lib/api';
 import { C, Card, Button, EmptyState, Spinner } from '@/components/ui';
 import { ChevronRightIcon, MessageIcon, StoreIcon, CarIcon } from '@/components/icons';
 
 export default function MessagesPage() {
   const router = useRouter();
-  const [role, setRole] = useState<Role>('owner');
+  const [role, setRole] = useState<'owner' | 'mechanic'>('owner');
   const [list, setList] = useState<Conversation[]>([]);
   const [loading, setLoading] = useState(true);
   const [active, setActive] = useState<Conversation | null>(null);

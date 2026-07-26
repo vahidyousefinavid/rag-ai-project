@@ -6,8 +6,14 @@ import { C } from '@/components/ui';
 import { Button } from '@/components/ui';
 import { Input } from '@/components/ui';
 import {
-  CarIcon, ShieldIcon, LockIcon, CloudIcon, BellIcon, GaugeIcon, WrenchIcon,
+  CarIcon, ShieldIcon, LockIcon, CloudIcon, BellIcon, GaugeIcon, WrenchIcon, StoreIcon,
 } from '@/components/icons';
+
+function homeFor(role: Role): string {
+  if (role === 'mechanic') return '/mechanic';
+  if (role === 'seller') return '/seller/products';
+  return '/dashboard';
+}
 
 /* ── Mock account card preview ──────────────────────────────────── */
 function AccountCardPreview() {
@@ -154,6 +160,10 @@ export default function LoginPage() {
   const router = useRouter();
   const [mode, setMode]       = useState<'login' | 'register'>('login');
   const [phone, setPhone]     = useState('');
+  const [code, setCode]       = useState('');
+  const [otpSent, setOtpSent] = useState(false);
+  const [otpLoading, setOtpLoading] = useState(false);
+  const [cooldown, setCooldown]     = useState(0);
   const [name, setName]       = useState('');
   const [role, setRole]       = useState<Role>('owner');
   const [workshopName, setWorkshopName]       = useState('');
@@ -165,23 +175,52 @@ export default function LoginPage() {
     if (!localStorage.getItem('vtoken')) return;
     try {
       const u = JSON.parse(localStorage.getItem('vuser') || '{}');
-      router.replace(u.role === 'mechanic' ? '/mechanic' : '/dashboard');
+      router.replace(homeFor(u.role));
     } catch {
       router.replace('/dashboard');
     }
   }, [router]);
 
+  useEffect(() => {
+    if (cooldown <= 0) return;
+    const t = setTimeout(() => setCooldown(c => c - 1), 1000);
+    return () => clearTimeout(t);
+  }, [cooldown]);
+
+  function editPhone() {
+    setOtpSent(false);
+    setCode('');
+    setError('');
+  }
+
+  async function sendOtp() {
+    setError('');
+    setOtpLoading(true);
+    try {
+      await api.auth.requestOtp(phone);
+      setOtpSent(true);
+      setCooldown(60);
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setOtpLoading(false);
+    }
+  }
+
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    if (!otpSent) {
+      return sendOtp();
+    }
     setLoading(true);
     setError('');
     try {
       const res = mode === 'login'
-        ? await api.auth.login(phone)
-        : await api.auth.register({ phone, name, role, workshopName, workshopAddress });
+        ? await api.auth.login(phone, code)
+        : await api.auth.register({ phone, code, name, role, workshopName, workshopAddress });
       localStorage.setItem('vtoken', res.access_token);
       localStorage.setItem('vuser', JSON.stringify(res.user));
-      router.push(res.user.role === 'mechanic' ? '/mechanic' : '/dashboard');
+      router.push(homeFor(res.user.role));
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -254,7 +293,7 @@ export default function LoginPage() {
             {(['login', 'register'] as const).map(m => (
               <button
                 key={m}
-                onClick={() => { setMode(m); setError(''); }}
+                onClick={() => { setMode(m); editPhone(); }}
                 style={{
                   flex: 1, padding: '10px 0', fontSize: 13, fontWeight: 700,
                   fontFamily: 'Vazirmatn, sans-serif',
@@ -283,6 +322,7 @@ export default function LoginPage() {
                     {([
                       { v: 'owner' as const,    label: 'مالک خودرو', icon: <CarIcon size={16} /> },
                       { v: 'mechanic' as const, label: 'مکانیک',     icon: <WrenchIcon size={16} /> },
+                      { v: 'seller' as const,   label: 'فروشنده',    icon: <StoreIcon size={16} /> },
                     ]).map(opt => (
                       <button
                         key={opt.v}
@@ -311,17 +351,20 @@ export default function LoginPage() {
                   <Input value={name} onChange={e => setName(e.target.value)} placeholder="علی احمدی" required />
                 </div>
 
-                {role === 'mechanic' && (
+                {(role === 'mechanic' || role === 'seller') && (
                   <>
                     <div>
                       <label style={{ fontSize: 11, color: C.muted, fontWeight: 600, display: 'block', marginBottom: 7 }}>
-                        نام تعمیرگاه
+                        {role === 'mechanic' ? 'نام تعمیرگاه' : 'نام فروشگاه'}
                       </label>
-                      <Input value={workshopName} onChange={e => setWorkshopName(e.target.value)} placeholder="تعمیرگاه امید" required />
+                      <Input
+                        value={workshopName} onChange={e => setWorkshopName(e.target.value)}
+                        placeholder={role === 'mechanic' ? 'تعمیرگاه امید' : 'فروشگاه لوازم یدکی امید'} required
+                      />
                     </div>
                     <div>
                       <label style={{ fontSize: 11, color: C.muted, fontWeight: 600, display: 'block', marginBottom: 7 }}>
-                        آدرس تعمیرگاه
+                        {role === 'mechanic' ? 'آدرس تعمیرگاه' : 'آدرس فروشگاه'}
                       </label>
                       <Input value={workshopAddress} onChange={e => setWorkshopAddress(e.target.value)} placeholder="اختیاری" />
                     </div>
@@ -330,19 +373,64 @@ export default function LoginPage() {
               </>
             )}
             <div>
-              <label style={{ fontSize: 11, color: C.muted, fontWeight: 600, display: 'block', marginBottom: 7 }}>
-                شماره موبایل
-              </label>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 7 }}>
+                <label style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>
+                  شماره موبایل
+                </label>
+                {otpSent && (
+                  <button
+                    type="button"
+                    onClick={editPhone}
+                    style={{ background: 'none', border: 'none', color: C.green, fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'Vazirmatn, sans-serif' }}
+                  >
+                    ویرایش شماره
+                  </button>
+                )}
+              </div>
               <Input
                 value={phone}
                 onChange={e => setPhone(e.target.value)}
                 placeholder="09123456789"
                 type="tel"
                 required
+                readOnly={otpSent}
                 dir="ltr"
-                style={{ textAlign: 'left' }}
+                style={{ textAlign: 'left', opacity: otpSent ? 0.6 : 1 }}
               />
             </div>
+
+            {otpSent && (
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 7 }}>
+                  <label style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>
+                    کد تایید پیامک‌شده
+                  </label>
+                  <button
+                    type="button"
+                    onClick={sendOtp}
+                    disabled={cooldown > 0 || otpLoading}
+                    style={{
+                      background: 'none', border: 'none', fontSize: 11, fontWeight: 700,
+                      fontFamily: 'Vazirmatn, sans-serif',
+                      color: cooldown > 0 ? C.muted : C.green,
+                      cursor: cooldown > 0 ? 'default' : 'pointer',
+                    }}
+                  >
+                    {cooldown > 0 ? `ارسال مجدد (${cooldown})` : 'ارسال مجدد کد'}
+                  </button>
+                </div>
+                <Input
+                  value={code}
+                  onChange={e => setCode(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                  placeholder="----"
+                  inputMode="numeric"
+                  autoFocus
+                  required
+                  dir="ltr"
+                  style={{ textAlign: 'center', letterSpacing: 6, fontSize: 18 }}
+                />
+              </div>
+            )}
 
             {error && (
               <div style={{
@@ -355,8 +443,8 @@ export default function LoginPage() {
               </div>
             )}
 
-            <Button type="submit" loading={loading} fullWidth size="lg" style={{ marginTop: 2 }}>
-              {mode === 'login' ? 'ورود به حساب' : 'ساخت حساب'}
+            <Button type="submit" loading={otpSent ? loading : otpLoading} fullWidth size="lg" style={{ marginTop: 2 }}>
+              {!otpSent ? 'دریافت کد تایید' : (mode === 'login' ? 'ورود به حساب' : 'ساخت حساب')}
             </Button>
           </form>
         </div>

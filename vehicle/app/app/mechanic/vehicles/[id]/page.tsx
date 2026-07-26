@@ -10,7 +10,7 @@ import {
   api, MechanicVehicleDetail, ServiceRecord, SERVICE_TYPES, InvoiceItem, Part, toJalali,
 } from '@/lib/api';
 import {
-  C, Card, IconBadge, Button, IconButton, FormField, Input, ChipGroup, Sheet,
+  C, Card, IconBadge, Button, IconButton, FormField, Input, Select, ChipGroup, Sheet,
   EmptyState, Spinner,
 } from '@/components/ui';
 import {
@@ -295,17 +295,16 @@ function AddServiceWithInvoiceSheet({ vehicleId, record, onClose, onSaved }: { v
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             {items.map((item, i) => (
               <div key={i} style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                <select
+                <Select
                   value={item.type}
                   onChange={e => updateItem(i, { type: e.target.value as 'part' | 'labor' })}
                   style={{
-                    background: 'rgba(255,255,255,0.05)', border: `1px solid ${C.border}`, borderRadius: 10,
-                    padding: '9px 6px', fontSize: 11, color: C.text, fontFamily: 'Vazirmatn, sans-serif', flexShrink: 0, width: 68,
+                    borderRadius: 10, padding: '9px 6px 9px 24px', fontSize: 11, flexShrink: 0, width: 80,
                   }}
                 >
                   <option value="part">قطعه</option>
                   <option value="labor">دستمزد</option>
-                </select>
+                </Select>
                 <Input value={item.name} onChange={e => updateItem(i, { name: e.target.value })} placeholder="نام" style={{ flex: 2 }} />
                 <Input value={String(item.quantity)} onChange={e => updateItem(i, { quantity: Number(e.target.value) })} type="number" placeholder="تعداد" style={{ flex: 1, textAlign: 'center' }} />
                 <Input value={String(item.unitPrice)} onChange={e => updateItem(i, { unitPrice: Number(e.target.value) })} type="number" placeholder="قیمت" style={{ flex: 1.3, textAlign: 'center' }} />

@@ -5,6 +5,8 @@
 @import url('https://fonts.googleapis.com/css2?family=Vazirmatn:wght@300;400;500;600;700;800;900&display=swap');
 
 :root {
+  color-scheme: dark;
+
   /* ── Brand (navy + green fintech) ── */
   --green:        #22C55E;
   --green-dark:   #16A34A;
@@ -228,12 +230,29 @@ header.glass {
   color: #ffffff !important;
 }
 
-/* Form inputs - dark glass */
-input[type="text"],
-input[type="tel"],
-input[type="number"],
-input[type="date"],
-input[type="email"],
-textarea {
-  color-scheme: dark;
+/* ── Form inputs - dark glass ──
+   `color-scheme: dark` on :root already themes native chrome
+   (select popups, date/time pickers, checkboxes, spinners); the rest
+   here covers what that doesn't reach: placeholders, autofill, and
+   the <option> list background some browsers keep light regardless. */
+::placeholder {
+  color: var(--subtle);
+  opacity: 1;
+}
+
+select option {
+  background: var(--surface-solid);
+  color: var(--text);
+}
+
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus,
+textarea:-webkit-autofill,
+select:-webkit-autofill {
+  -webkit-text-fill-color: var(--text);
+  -webkit-box-shadow: 0 0 0 1000px var(--surface-solid) inset;
+  box-shadow: 0 0 0 1000px var(--surface-solid) inset;
+  caret-color: var(--text);
+  transition: background-color 9999s ease-in-out 0s;
 }

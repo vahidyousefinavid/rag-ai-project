@@ -1,7 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 
 const API_KEY = process.env.NESHAN_API_KEY;
-const TILE_STYLE = 'standard-day';
 
 export interface ProxiedImage {
   buffer: Buffer;
@@ -11,20 +10,6 @@ export interface ProxiedImage {
 @Injectable()
 export class MapService {
   private readonly logger = new Logger(MapService.name);
-
-  async tile(z: string, x: string, y: string): Promise<ProxiedImage | null> {
-    if (!API_KEY) return null;
-    try {
-      const res = await fetch(`https://api.neshan.org/v1/map-tiles/${TILE_STYLE}/${z}/${x}/${y}.png`, {
-        headers: { 'Api-Key': API_KEY },
-      });
-      if (!res.ok) return { buffer: Buffer.alloc(0), status: res.status };
-      return { buffer: Buffer.from(await res.arrayBuffer()), status: 200 };
-    } catch (err: any) {
-      this.logger.warn(`neshan tile fetch failed: ${err?.message || err}`);
-      return null;
-    }
-  }
 
   async staticMap(params: { lat: number; lng: number; zoom: number; width: number; height: number }): Promise<ProxiedImage | null> {
     if (!API_KEY) return null;

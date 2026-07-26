@@ -1,6 +1,7 @@
 'use client';
 import { useState } from 'react';
 import { C } from './tokens';
+import { ChevronDownIcon } from '../icons';
 
 export function FormField({ label, children, required }: { label: string; children: React.ReactNode; required?: boolean }) {
   return (
@@ -59,6 +60,35 @@ export function TextArea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement
         ...props.style,
       }}
     />
+  );
+}
+
+export function Select(props: React.SelectHTMLAttributes<HTMLSelectElement>) {
+  const [focused, setFocused] = useState(false);
+  return (
+    <div style={{ position: 'relative' }}>
+      <select
+        {...props}
+        onFocus={e => { setFocused(true); props.onFocus?.(e); }}
+        onBlur={e => { setFocused(false); props.onBlur?.(e); }}
+        style={{
+          ...baseInputStyle,
+          appearance: 'none',
+          WebkitAppearance: 'none',
+          cursor: 'pointer',
+          paddingLeft: 34,
+          border: `1px solid ${focused ? C.green : C.border}`,
+          boxShadow: focused ? `0 0 0 3px ${C.green}1a` : 'none',
+          ...props.style,
+        }}
+      />
+      <span style={{
+        position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)',
+        pointerEvents: 'none', color: C.muted, display: 'flex',
+      }}>
+        <ChevronDownIcon size={14} />
+      </span>
+    </div>
   );
 }
 

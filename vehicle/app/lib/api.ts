@@ -19,10 +19,37 @@ async function req<T>(method: string, path: string, body?: unknown): Promise<T> 
   return res.json();
 }
 
+async function reqForm<T>(method: string, path: string, form: FormData): Promise<T> {
+  const res = await fetch(`${BASE}${path}`, {
+    method,
+    headers: { Authorization: `Bearer ${token()}` },
+    body: form,
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error((err as any).message || `HTTP ${res.status}`);
+  }
+  if (res.status === 204) return undefined as T;
+  return res.json();
+}
+
+function productForm(d: Partial<UpsertProductInput>) {
+  const form = new FormData();
+  if (d.name !== undefined) form.set('name', d.name);
+  if (d.category !== undefined) form.set('category', d.category);
+  if (d.description !== undefined) form.set('description', d.description);
+  if (d.price !== undefined) form.set('price', String(d.price));
+  if (d.stock !== undefined) form.set('stock', String(d.stock));
+  if (d.unit !== undefined) form.set('unit', d.unit);
+  if (d.image) form.set('image', d.image);
+  return form;
+}
+
 export const api = {
   auth: {
-    register: (d: RegisterInput) => req<AuthRes>('POST', '/auth/register', d),
-    login:    (phone: string)    => req<AuthRes>('POST', '/auth/login', { phone }),
+    requestOtp: (phone: string)              => req<{ sent: boolean }>('POST', '/auth/otp/request', { phone }),
+    register:   (d: RegisterInput)           => req<AuthRes>('POST', '/auth/register', d),
+    login:      (phone: string, code: string) => req<AuthRes>('POST', '/auth/login', { phone, code }),
     updateProfile: (d: { workshopName?: string; workshopAddress?: string; workshopLat?: number; workshopLng?: number }) =>
       req<User>('PATCH', '/auth/me', d),
   },
@@ -153,7 +180,18 @@ export const api = {
   geocode: {
     reverse: (lat: number, lng: number) => req<{ address: string | null }>('GET', `/geocode/reverse?lat=${lat}&lng=${lng}`),
   },
+  products: {
+    list:      (q?: string) => req<Product[]>('GET', `/seller/products${q ? `?q=${encodeURIComponent(q)}` : ''}`),
+    create:    (d: UpsertProductInput) => reqForm<Product>('POST', '/seller/products', productForm(d)),
+    update:    (id: string, d: Partial<UpsertProductInput>) => reqForm<Product>('PATCH', `/seller/products/${id}`, productForm(d)),
+    setActive: (id: string, active: boolean) => req<Product>('PATCH', `/seller/products/${id}/active`, { active }),
+    remove:    (id: string) => req<void>('DELETE', `/seller/products/${id}`),
+  },
 };
+
+export function productImageUrl(path?: string | null): string | undefined {
+  return path ? `${BASE}${path}` : undefined;
+}
 
 export async function downloadPdf(path: string, filename: string) {
   const res = await fetch(`${BASE}${path}`, { headers: { Authorization: `Bearer ${token()}` } });
@@ -166,10 +204,18 @@ export async function downloadPdf(path: string, filename: string) {
   URL.revokeObjectURL(url);
 }
 
-export type Role = 'owner' | 'mechanic';
+export type Role = 'owner' | 'mechanic' | 'seller';
 
 export interface RegisterInput {
-  phone: string; name: string; role?: Role; workshopName?: string; workshopAddress?: string;
+  phone: string; code: string; name: string; role?: Role; workshopName?: string; workshopAddress?: string;
+}
+
+export interface Product {
+  id: string; name: string; category?: string; description?: string;
+  price: number; stock: number; unit: string; imageUrl?: string; active: boolean; createdAt: string;
+}
+export interface UpsertProductInput {
+  name: string; category?: string; description?: string; price: number; stock?: number; unit?: string; image?: File;
 }
 
 export interface AuthRes { access_token: string; user: User }

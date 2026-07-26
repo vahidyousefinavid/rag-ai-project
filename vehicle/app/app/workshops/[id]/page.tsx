@@ -9,7 +9,7 @@ import AddressLocationField, { type Coords } from '@/components/AddressLocationF
 import { svcMeta } from '@/components/serviceMeta';
 import { api, WorkshopDetail, MechanicReview, MechanicServiceOffering, Vehicle, ServiceMode, toJalali } from '@/lib/api';
 import {
-  C, Card, SectionCard, Button, FormField, Input, TextArea, Sheet, EmptyState, Spinner,
+  C, Card, SectionCard, Button, FormField, Input, TextArea, Select, Sheet, EmptyState, Spinner,
 } from '@/components/ui';
 import {
   ChevronRightIcon, StoreIcon, StarIcon, PinIcon, CalendarIcon, MessageIcon, WrenchIcon,
@@ -302,18 +302,14 @@ function BookAppointmentSheet({ vehicle, mechanicId, services, onClose }: {
       <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         {services.length > 0 ? (
           <FormField label="نوع سرویس">
-            <select
+            <Select
               value={serviceType}
               onChange={e => { setServiceType(e.target.value); setSvcMode('in_shop'); }}
-              style={{
-                width: '100%', background: 'rgba(255,255,255,0.05)', border: `1px solid ${C.border}`, borderRadius: 14,
-                padding: '11px 14px', fontSize: 13, color: C.text, fontFamily: 'Vazirmatn, sans-serif',
-              }}
             >
               {services.map(s => (
                 <option key={s.id} value={s.serviceType}>{s.serviceType === 'سایر' && s.customName ? s.customName : s.serviceType}</option>
               ))}
-            </select>
+            </Select>
           </FormField>
         ) : (
           <FormField label="نوع سرویس"><Input value={customType} onChange={e => setCustomType(e.target.value)} placeholder="مثلاً تعویض روغن" /></FormField>

@@ -13,7 +13,13 @@ export class User {
   name: string;
 
   @Column({ default: 'owner' })
-  role: 'owner' | 'mechanic';
+  role: 'owner' | 'mechanic' | 'admin' | 'seller';
+
+  @Column({ nullable: true })
+  password: string;
+
+  @Column({ default: true })
+  active: boolean;
 
   @Column({ nullable: true })
   workshopName: string;

@@ -19,11 +19,12 @@ export default function BottomNav() {
   useEffect(() => {
     try {
       const u = JSON.parse(localStorage.getItem('vuser') || '{}');
-      if (u.role === 'mechanic') setRole('mechanic');
+      if (u.role === 'mechanic' || u.role === 'seller') setRole(u.role);
     } catch {}
   }, []);
 
-  const onHome    = pathname === (role === 'mechanic' ? '/mechanic' : '/dashboard');
+  const homeHref  = role === 'mechanic' ? '/mechanic' : role === 'seller' ? '/seller/products' : '/dashboard';
+  const onHome    = pathname === homeHref;
   const onVehicle = pathname.startsWith('/vehicles') && pathname !== '/vehicles/new';
   const onProfile = pathname === '/profile';
 
@@ -41,7 +42,7 @@ export default function BottomNav() {
         boxShadow: '0 -4px 24px rgba(0,0,0,0.30)',
       }}
     >
-      <Link href={role === 'mechanic' ? '/mechanic' : '/dashboard'} style={tabStyle(onHome)}>
+      <Link href={homeHref} style={tabStyle(onHome)}>
         <HomeIcon size={22} strokeWidth={onHome ? 2 : 1.75} />
         <span style={{ fontSize: 10, fontWeight: onHome ? 800 : 600 }}>خانه</span>
       </Link>

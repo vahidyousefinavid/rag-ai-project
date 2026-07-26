@@ -1,14 +1,10 @@
 import json
 import os
-import tempfile
 
 import httpx
 from fastapi import APIRouter, HTTPException, UploadFile, File
-from faster_whisper import WhisperModel
 
 router = APIRouter()
-
-_model: WhisperModel | None = None
 
 # ── کلیدواژه‌های فرمان صوتی ─────────────────────────────────────────────────
 _INTENTS: dict[str, list[str]] = {
@@ -20,70 +16,35 @@ _INTENTS: dict[str, list[str]] = {
 OLLAMA_URL = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:7998")
 LLM_MODEL  = os.getenv("OLLAMA_LLM_MODEL", "llama3.1")
 
-# large-v3 = بالاترین دقت فارسی
-# WHISPER_MODEL env: large-v3 | medium | base | small
-# WHISPER_DEVICE env: cpu | cuda  (cuda اگه GPU داری خیلی سریع‌تره)
-WHISPER_MODEL_SIZE = os.getenv("WHISPER_MODEL",  "large-v3")
-WHISPER_DEVICE     = os.getenv("WHISPER_DEVICE", "cuda")
-WHISPER_LANGUAGE   = os.getenv("WHISPER_LANGUAGE", "fa")
-
-_COMPUTE_TYPE = "int8"
+STT_TTS_URL = os.getenv("STT_TTS_SERVICE_URL", "http://127.0.0.1:8010")
 
 
-def _get_model() -> WhisperModel:
-    global _model
-    if _model is None:
-        print(f"[Whisper] loading {WHISPER_MODEL_SIZE} on {WHISPER_DEVICE} ({_COMPUTE_TYPE})…")
-        _model = WhisperModel(WHISPER_MODEL_SIZE, device=WHISPER_DEVICE, compute_type=_COMPUTE_TYPE)
-        print("[Whisper] model ready.")
-    return _model
-
-
-def _transcribe_file(path: str, beam_size: int = 5) -> tuple[str, str, bool]:
-    """Returns (text, language, no_speech)."""
-    model = _get_model()
-    lang  = WHISPER_LANGUAGE if WHISPER_LANGUAGE else None
-
-    segments, info = model.transcribe(
-        path,
-        language=lang,
-        beam_size=beam_size,
-        condition_on_previous_text=False,
-        no_speech_threshold=0.9,
-        initial_prompt="گفتار فارسی:",
-    )
-
-    text = " ".join(s.text.strip() for s in segments if s.text.strip()).strip()
-    return text, info.language, not bool(text)
+async def _transcribe_via_service(filename: str, data: bytes, beam_size: int = 5) -> dict:
+    async with httpx.AsyncClient(timeout=120) as client:
+        try:
+            resp = await client.post(
+                f"{STT_TTS_URL}/api/transcribe",
+                params={"beam_size": beam_size},
+                files={"file": (filename or "audio.webm", data)},
+            )
+            resp.raise_for_status()
+        except httpx.HTTPError as e:
+            raise HTTPException(status_code=502, detail=f"STT service error: {e}")
+    return resp.json()
 
 
 @router.post("/transcribe")
 async def transcribe_audio(file: UploadFile = File(...)):
-    ext = os.path.splitext(file.filename or "")[1] or ".webm"
-    with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp:
-        tmp.write(await file.read())
-        tmp_path = tmp.name
-
-    try:
-        text, lang, no_speech = _transcribe_file(tmp_path, beam_size=5)
-    finally:
-        os.unlink(tmp_path)
-
-    return {"text": text, "language": lang, "no_speech": no_speech}
+    data = await file.read()
+    return await _transcribe_via_service(file.filename, data, beam_size=5)
 
 
 @router.post("/voice-intent")
 async def voice_intent(file: UploadFile = File(...)):
     """Transcribe a short voice command and return parsed intent."""
-    ext = os.path.splitext(file.filename or "")[1] or ".webm"
-    with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp:
-        tmp.write(await file.read())
-        tmp_path = tmp.name
-
-    try:
-        text, _, no_speech = _transcribe_file(tmp_path, beam_size=3)
-    finally:
-        os.unlink(tmp_path)
+    data = await file.read()
+    result = await _transcribe_via_service(file.filename, data, beam_size=3)
+    text, no_speech = result.get("text", ""), result.get("no_speech", False)
 
     if no_speech:
         return {"text": "", "intent": "unknown", "no_speech": True}

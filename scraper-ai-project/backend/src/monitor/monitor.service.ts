@@ -48,6 +48,7 @@ export interface CreateMonitorDto {
   loginSubmitSelector?: string | null;
   extractionSchema?: ExtractionSchema | null;
   dbSink?: DbSinkInput;
+  agentGoal?: string | null;
 }
 
 export type UpdateMonitorDto = Partial<CreateMonitorDto>;
@@ -149,6 +150,7 @@ export class MonitorService {
         loginSubmitSelector: dto.loginSubmitSelector || null,
         extractionSchema: this.normalizeExtractionSchema(dto.extractionSchema),
         dbSink: this.buildDbSink(dto.dbSink, null),
+        agentGoal: dto.agentGoal?.trim() || null,
         nextRunAt: new Date(),
       }),
     );
@@ -181,6 +183,7 @@ export class MonitorService {
     if (dto.loginSubmitSelector !== undefined) patch.loginSubmitSelector = dto.loginSubmitSelector || null;
     if (dto.extractionSchema !== undefined) patch.extractionSchema = this.normalizeExtractionSchema(dto.extractionSchema);
     if (dto.dbSink !== undefined) patch.dbSink = this.buildDbSink(dto.dbSink, target.dbSink);
+    if (dto.agentGoal !== undefined) patch.agentGoal = dto.agentGoal?.trim() || null;
 
     await this.targets.update(id, patch);
     return this.toPublic((await this.targets.findOneBy({ id }))!);
@@ -214,7 +217,7 @@ export class MonitorService {
    */
   async getExportRecords(id: string, limit?: number): Promise<Record<string, any>[]> {
     const target = await this.get(id);
-    const records = target.extractionSchema && target.lastExtractedRecords
+    const records = (target.extractionSchema || target.agentGoal) && target.lastExtractedRecords
       ? target.lastExtractedRecords
       : (await this.vector.listPagesForSource(id, MAX_EXPORT_LIMIT)).map((p) => ({ url: p.url, title: p.title }));
 
@@ -282,9 +285,9 @@ export class MonitorService {
 
     try {
       const login = this.buildLoginConfig(target);
-      const { pages, socialLinks, records, lastFailureReason } = await this.crawler.crawl(
-        target.url, target.maxPages, login, target.crawlLevel, target.extractionSchema,
-      );
+      const { pages, socialLinks, records, lastFailureReason } = target.agentGoal
+        ? await this.crawler.crawlWithAgent(target.url, target.agentGoal, target.maxPages, login)
+        : await this.crawler.crawl(target.url, target.maxPages, login, target.crawlLevel, target.extractionSchema);
       if (pages.length === 0) {
         throw new Error(lastFailureReason ? `هیچ صفحه‌ای قابل دریافت نبود — دلیل: ${lastFailureReason}` : 'هیچ صفحه‌ای قابل دریافت نبود');
       }
@@ -325,8 +328,9 @@ export class MonitorService {
         }
       }
 
-      const extractionWarning = target.extractionSchema && records.length === 0
-        ? 'سلکتورهای استخراج تعریف‌شده هیچ رکوردی روی صفحات کرال‌شده پیدا نکردند — سلکتورها رو بررسی کنید.'
+      const extractionWarning = records.length > 0 ? null
+        : target.agentGoal ? 'ایجنت هوشمند روی صفحات کرال‌شده هیچ رکوردی متناسب با هدف پیدا نکرد — هدف رو دقیق‌تر بنویسید یا صفحات بیشتری اجازه بدید.'
+        : target.extractionSchema ? 'سلکتورهای استخراج تعریف‌شده هیچ رکوردی روی صفحات کرال‌شده پیدا نکردند — سلکتورها رو بررسی کنید.'
         : null;
 
       await this.runs.save(this.runs.create({
@@ -341,7 +345,7 @@ export class MonitorService {
         pageCount: pages.length,
         docCount: chunks.length,
         companyInfo,
-        lastExtractedRecords: target.extractionSchema ? this.capRecords(records) : null,
+        lastExtractedRecords: (target.extractionSchema || target.agentGoal) ? this.capRecords(records) : null,
         lastDbSinkError: dbSinkError,
         lastExtractionWarning: extractionWarning,
         lastCheckedAt: new Date(),

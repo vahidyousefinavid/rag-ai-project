@@ -12,7 +12,7 @@ class Base(DeclarativeBase):
 
 
 async def init_db() -> None:
-    from models import Task  # noqa: F401  — registers the model
+    from models import Task, Project, Note, LedgerEntry  # noqa: F401  — registers the models
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 

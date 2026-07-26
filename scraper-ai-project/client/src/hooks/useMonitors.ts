@@ -67,6 +67,7 @@ export interface MonitorTarget {
   hasLoginPassword: boolean
   extractionSchema: ExtractionSchema | null
   dbSink: DbSinkConfig | null
+  agentGoal: string | null
   apiKeyPrefix: string | null
   hasApiKey: boolean
   status: MonitorStatus
@@ -140,6 +141,7 @@ export interface MonitorFormDto {
   loginSubmitSelector?: string
   extractionSchema?: ExtractionSchema | null
   dbSink?: DbSinkFormInput | null
+  agentGoal?: string | null
 }
 
 async function errorMessage(res: Response, fallback: string): Promise<string> {
@@ -232,6 +234,12 @@ export function useMonitors() {
       return { ok: false, error: err.message }
     }
   }, [])
+
+  /** Inserts a monitor the server already created (e.g. via the setup-wizard chat) into local state and starts polling it — mirrors what createTarget does after its own POST. */
+  const adoptTarget = useCallback((target: MonitorTarget) => {
+    setTargets(s => [target, ...s])
+    startPolling(target.id)
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const checkNow = useCallback(async (id: string) => {
     await fetch(`/monitors/${id}/check-now`, { method: 'POST' })
@@ -377,7 +385,7 @@ export function useMonitors() {
 
   return {
     targets, messages, loading, error, chatSessions, sessionId,
-    fetchTargets, createTarget, updateTarget, deleteTarget, checkNow, fetchRuns,
+    fetchTargets, createTarget, adoptTarget, updateTarget, deleteTarget, checkNow, fetchRuns,
     generateApiKey, revokeApiKey, fetchDataPreview, testDbSink,
     ask, clearChat, selectTarget, newChat, selectChat, deleteChat,
   }

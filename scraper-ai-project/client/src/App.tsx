@@ -2,13 +2,12 @@ import { useState } from 'react'
 import useChat from './hooks/useChat'
 import SessionSidebar from './components/SessionSidebar'
 import ChatLayout from './components/ChatLayout'
-import TasksPage from './pages/TasksPage'
 import VaultPage from './pages/VaultPage'
 import MonitorPage from './pages/MonitorPage'
 import { useLanguage } from './i18n/LanguageContext'
 import './index.css'
 
-type View = 'chat' | 'tasks' | 'vault' | 'monitor'
+type View = 'chat' | 'vault' | 'monitor'
 
 export default function App() {
   const [view, setView] = useState<View>('chat')
@@ -28,7 +27,7 @@ export default function App() {
         className="flex items-center gap-1 px-3 py-1.5 flex-shrink-0"
         dir="ltr"
       >
-        {(['chat', 'tasks', 'vault', 'monitor'] as View[]).map(v => (
+        {(['chat', 'vault', 'monitor'] as View[]).map(v => (
           <button
             key={v}
             onClick={() => setView(v)}
@@ -39,7 +38,7 @@ export default function App() {
             }}
             className="px-3 py-1 rounded-lg text-xs font-medium transition-colors hover:text-white"
           >
-            {v === 'chat' ? t.navChat : v === 'tasks' ? t.navTasks : v === 'vault' ? t.navVault : t.navMonitor}
+            {v === 'chat' ? t.navChat : v === 'vault' ? t.navVault : t.navMonitor}
           </button>
         ))}
       </nav>
@@ -66,8 +65,6 @@ export default function App() {
               onSend={sendMessage}
             />
           </>
-        ) : view === 'tasks' ? (
-          <TasksPage />
         ) : view === 'vault' ? (
           <VaultPage />
         ) : (

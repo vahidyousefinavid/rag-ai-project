@@ -5,15 +5,22 @@ import {
 import type { Response } from 'express';
 import { MonitorService, CreateMonitorDto, UpdateMonitorDto } from './monitor.service';
 import { DbSinkService, DbSinkTestConfig } from './db-sink.service';
+import { MonitorWizardService, WizardTurnMessage } from './monitor-wizard.service';
 import { toCsv } from './csv.util';
 
 @Controller('monitors')
 export class MonitorController {
-  constructor(private svc: MonitorService, private dbSinkSvc: DbSinkService) {}
+  constructor(private svc: MonitorService, private dbSinkSvc: DbSinkService, private wizard: MonitorWizardService) {}
 
   @Get()
   list() {
     return this.svc.list();
+  }
+
+  /** Conversational monitor setup: caller resends the full history each turn (stateless — see MonitorWizardService). */
+  @Post('wizard/turn')
+  wizardTurn(@Body() body: { history?: WizardTurnMessage[]; message: string }) {
+    return this.wizard.turn(body.history ?? [], body.message);
   }
 
   @Post()

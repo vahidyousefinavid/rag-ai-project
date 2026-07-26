@@ -18,6 +18,9 @@ out/
 *.tsbuildinfo
 tsconfig.tsbuildinfo
 
+# ── User-uploaded files ────────────────────────────────────────
+uploads/
+
 # ── Logs ──────────────────────────────────────────────────────
 *.log
 npm-debug.log*

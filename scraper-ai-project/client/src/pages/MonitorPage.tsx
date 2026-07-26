@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, type FormEvent } from 'react'
 import { useMonitors } from '../hooks/useMonitors'
+import MonitorWizardModal from '../components/MonitorWizardModal'
 import type {
   MonitorTarget, MonitorRun, SchedulePreset, NotifyChannel, CrawlLevel,
   ExtractionField, DbSinkType, DbSinkMode, MonitorFormDto, DbSinkFormInput,
@@ -76,13 +77,14 @@ export default function MonitorPage() {
   const { t } = useLanguage()
   const {
     targets, messages, loading, error, chatSessions, sessionId,
-    fetchTargets, createTarget, updateTarget, deleteTarget, checkNow, fetchRuns,
+    fetchTargets, createTarget, adoptTarget, updateTarget, deleteTarget, checkNow, fetchRuns,
     generateApiKey, revokeApiKey, fetchDataPreview, testDbSink,
     ask, clearChat, selectTarget, newChat, selectChat, deleteChat,
   } = useMonitors()
 
   const [activeTarget, setActiveTarget] = useState<string | undefined>()
   const [modalMode,     setModalMode]   = useState<'create' | 'edit' | null>(null)
+  const [wizardOpen,    setWizardOpen]  = useState(false)
   const [editTargetId,  setEditTargetId]= useState<string | null>(null)
   const [apiPanelId,    setApiPanelId]  = useState<string | null>(null)
   const [historyId,     setHistoryId]    = useState<string | null>(null)
@@ -326,6 +328,15 @@ export default function MonitorPage() {
               setModalMode(null)
               setEditTargetId(null)
             }}
+            onSwitchToChat={modalMode === 'create' ? () => { setModalMode(null); setWizardOpen(true) } : undefined}
+          />
+        )}
+
+        {wizardOpen && (
+          <MonitorWizardModal
+            onClose={() => setWizardOpen(false)}
+            onCreated={(target) => { adoptTarget(target); setWizardOpen(false) }}
+            onSwitchToForm={() => { setWizardOpen(false); setModalMode('create') }}
           />
         )}
 
@@ -791,12 +802,14 @@ const DB_DEFAULT_PORT: Record<DbSinkType, number> = { postgres: 5432, mysql: 330
 /* ══════════════════════════════════════════════════════════════════
    ADD / EDIT MONITOR MODAL
 ══════════════════════════════════════════════════════════════════ */
-function MonitorFormModal({ t, initial, testDbSink, onClose, onSubmit }: {
+function MonitorFormModal({ t, initial, testDbSink, onClose, onSubmit, onSwitchToChat }: {
   t: import('../i18n').Translation
   initial?: MonitorTarget
   testDbSink: (cfg: DbSinkFormInput) => Promise<{ ok: boolean; error?: string }>
   onClose: () => void
   onSubmit: (dto: Partial<MonitorFormDto>) => Promise<void>
+  /** Only offered when creating (not editing) — swaps this form for the conversational setup wizard. */
+  onSwitchToChat?: () => void
 }) {
   const isEdit = !!initial
   const [name,          setName]          = useState(initial?.name ?? '')
@@ -832,6 +845,9 @@ function MonitorFormModal({ t, initial, testDbSink, onClose, onSubmit }: {
   }
   function addField() { setFields(prev => [...prev, { name: '', selector: '', attr: '' }]) }
   function removeField(i: number) { setFields(prev => prev.filter((_, idx) => idx !== i)) }
+
+  // ── Smart crawl agent (LLM) ─────────────────────────────────────
+  const [agentGoal, setAgentGoal] = useState(initial?.agentGoal ?? '')
 
   // ── DB sink ─────────────────────────────────────────────────────
   const [dbSinkEnabled, setDbSinkEnabled] = useState(!!initial?.dbSink?.enabled)
@@ -918,6 +934,7 @@ function MonitorFormModal({ t, initial, testDbSink, onClose, onSubmit }: {
         extractionSchema: extractionEnabled && cleanFields.length > 0
           ? { itemSelector: itemSelector.trim() || undefined, fields: cleanFields }
           : null,
+        agentGoal: agentGoal.trim() || null,
         dbSink: dbSinkEnabled && dbTable.trim()
           ? {
               enabled: true, type: dbType, host: dbHost, port: Number(dbPort) || DB_DEFAULT_PORT[dbType],
@@ -972,15 +989,28 @@ function MonitorFormModal({ t, initial, testDbSink, onClose, onSubmit }: {
             <span style={{ color: 'var(--accent)' }}>{isEdit ? Ic.edit : Ic.plus}</span>
             <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text)' }}>{isEdit ? t.monitorEditModalTitle : t.monitorAddModalTitle}</span>
           </div>
-          <button
-            onClick={onClose}
-            style={{
-              background: 'rgba(255,255,255,.06)', border: '1px solid var(--border)',
-              borderRadius: 8, width: 28, height: 28,
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              color: 'var(--text-muted)', cursor: 'pointer', fontSize: 14,
-            }}
-          >✕</button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            {onSwitchToChat && (
+              <button
+                type="button"
+                onClick={onSwitchToChat}
+                style={{
+                  background: 'rgba(124,58,237,.1)', border: '1px solid rgba(124,58,237,.3)',
+                  borderRadius: 8, padding: '5px 10px', fontSize: 11.5, fontWeight: 600,
+                  color: 'var(--accent)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5,
+                }}
+              >✦ {t.monitorWizardTab}</button>
+            )}
+            <button
+              onClick={onClose}
+              style={{
+                background: 'rgba(255,255,255,.06)', border: '1px solid var(--border)',
+                borderRadius: 8, width: 28, height: 28,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                color: 'var(--text-muted)', cursor: 'pointer', fontSize: 14,
+              }}
+            >✕</button>
+          </div>
         </div>
 
         {/* Body */}
@@ -1148,6 +1178,18 @@ function MonitorFormModal({ t, initial, testDbSink, onClose, onSubmit }: {
                 </div>
               </div>
             )}
+          </div>
+
+          <div>
+            <label style={{ fontSize: 12, color: 'var(--text)', fontWeight: 600, display: 'block', marginBottom: 4 }}>
+              {t.monitorAgentGoal}
+            </label>
+            <textarea
+              style={{ ...inp, resize: 'vertical', minHeight: 64 }}
+              value={agentGoal} onChange={e => setAgentGoal(e.target.value)}
+              placeholder={t.monitorAgentGoalPlaceholder}
+            />
+            <div style={{ fontSize: 10.5, color: 'var(--text-muted)', marginTop: 4, lineHeight: 1.5 }}>{t.monitorAgentGoalHint}</div>
           </div>
 
           <div>
